@@ -20,8 +20,6 @@
     width: 100%;
     height: 100%;
     outline: none;
-    cursor: crosshair;
-    touch-action: none;
   }
   #game-hud {
     position: absolute;
@@ -35,24 +33,10 @@
     border-radius: 12px;
     line-height: 1.65;
     font-size: 13px;
-    pointer-events: none;
     backdrop-filter: blur(5px);
   }
   #game-hud h2 { margin: 0 0 5px; font-size: 16px; }
   #game-position { color: #a7f3d0; }
-  #game-crosshair {
-    position: absolute;
-    z-index: 4;
-    left: 50%;
-    top: 50%;
-    width: 10px;
-    height: 10px;
-    transform: translate(-50%, -50%);
-    border: 2px solid rgba(255,255,255,.95);
-    border-radius: 50%;
-    box-shadow: 0 0 3px #000;
-    pointer-events: none;
-  }
   #game-help {
     position: absolute;
     z-index: 5;
@@ -66,7 +50,6 @@
     border-radius: 10px;
     font-size: 12px;
     white-space: nowrap;
-    pointer-events: none;
     text-align: center;
   }
   #game-overlay {
@@ -104,30 +87,17 @@
   }
   #game-overlay-title { margin: 0 0 10px; font-size: 25px; }
   #game-overlay-message {
-    margin: 0 0 20px;
+    margin: 0 0 12px;
     color: #d1d5db;
     font-size: 14px;
     line-height: 1.65;
   }
-  #game-resume {
-    width: 100%;
-    padding: 12px 18px;
-    color: #06251c;
-    background: #6ee7b7;
-    border: 0;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  #game-resume:hover { background: #a7f3d0; }
-  #game-resume:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   #game-overlay-note {
     display: block;
-    margin-top: 14px;
+    margin-top: 10px;
     color: #9ca3af;
-    font-size: 11px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.6;
   }
   #game-status {
     min-height: 18px;
@@ -147,23 +117,21 @@
 
   <div id="game-hud">
     <h2>🎮 3D WORLD · FPS</h2>
-    <div>이동: WASD / 방향키</div>
+    <div>이동: WASD</div>
+    <div>시점 조정: 방향키</div>
     <div>점프: SPACE</div>
-    <div>시점: 마우스 이동</div>
     <div>일시정지: ESC</div>
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-crosshair"></div>
-  <div id="game-help">WASD 이동 · SPACE 점프 · 마우스 이동으로 시점 회전 · ESC 일시정지 및 커서 해제</div>
+  <div id="game-help">WASD 이동 · 방향키로 시점 조정 · SPACE 점프 · ESC 일시정지 · ENTER 시작/계속</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
       <div id="game-overlay-kicker">3D FIRST PERSON WORLD</div>
       <h2 id="game-overlay-title">게임을 시작할까요?</h2>
-      <p id="game-overlay-message">시작 버튼을 누르면 마우스가 게임 화면에 고정됩니다. 마우스를 움직여 주변을 둘러보세요.</p>
-      <button id="game-resume" type="button">게임 시작</button>
-      <small id="game-overlay-note">게임 중 ESC를 누르면 일시정지되고 마우스 커서가 해제됩니다.</small>
+      <p id="game-overlay-message">ENTER 키를 눌러 게임을 시작하세요.</p>
+      <small id="game-overlay-note">방향키로 시점을 돌리고 WASD로 이동하세요. 게임 중 ESC를 누르면 일시정지됩니다.</small>
       <div id="game-status" aria-live="polite"></div>
     </div>
   </div>
@@ -180,9 +148,7 @@
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
   const overlayMessage = document.getElementById('game-overlay-message');
-  const resumeButton = document.getElementById('game-resume');
   const overlayNote = document.getElementById('game-overlay-note');
-  const statusLabel = document.getElementById('game-status');
 
   let width = 0;
   let height = 0;
@@ -219,34 +185,37 @@
     yaw: 0,
     pitch: 0.17,
     eyeHeight: 1.65,
-    sensitivity: 0.0024
+    turnSpeed: 1.8,
+    lookSpeed: 1.25
   };
 
   const keys = Object.create(null);
-  const movementCodes = new Set([
+  const controlCodes = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
-    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter'
   ]);
 
   function clearKeys() {
     for (const key of Object.keys(keys)) keys[key] = false;
   }
 
-  function showOverlay(mode, message = '') {
+  function showOverlay(mode) {
     overlay.hidden = false;
-    statusLabel.textContent = message;
-
     if (mode === 'ready') {
       overlayTitle.textContent = '게임을 시작할까요?';
-      overlayMessage.textContent = '시작 버튼을 누르면 마우스가 게임 화면에 고정됩니다. 마우스를 움직여 주변을 둘러보세요.';
-      resumeButton.textContent = '게임 시작';
-      overlayNote.textContent = '게임 중 ESC를 누르면 일시정지되고 마우스 커서가 해제됩니다.';
+      overlayMessage.textContent = 'ENTER 키를 눌러 게임을 시작하세요.';
+      overlayNote.textContent = 'WASD로 이동하고 방향키로 시점을 조정하세요. SPACE는 점프, ESC는 일시정지입니다.';
     } else {
       overlayTitle.textContent = '일시정지';
-      overlayMessage.textContent = '게임이 멈췄습니다. 계속하기를 누르면 마우스가 다시 고정되고 이어서 플레이합니다.';
-      resumeButton.textContent = '계속하기';
-      overlayNote.textContent = '게임 화면 밖으로 커서를 이동하거나 다른 곳을 클릭할 수 있습니다.';
+      overlayMessage.textContent = '게임이 멈췄습니다. ENTER 키를 누르면 이어서 플레이합니다.';
+      overlayNote.textContent = '게임이 진행되는 동안에는 WASD와 방향키로 조작할 수 있습니다.';
     }
+  }
+
+  function startGame() {
+    clearKeys();
+    gameState = 'playing';
+    overlay.hidden = true;
   }
 
   function pauseGame() {
@@ -254,78 +223,21 @@
     gameState = 'paused';
     clearKeys();
     showOverlay('paused');
-    if (document.pointerLockElement === canvas) {
-      document.exitPointerLock();
-    }
   }
-
-  function requestGameLock() {
-    if (document.pointerLockElement === canvas) return;
-    statusLabel.textContent = '';
-    canvas.focus({ preventScroll: true });
-
-    if (typeof canvas.requestPointerLock !== 'function') {
-      statusLabel.textContent = '이 브라우저에서는 마우스 고정을 지원하지 않습니다.';
-      return;
-    }
-
-    try {
-      const result = canvas.requestPointerLock();
-      // 최신 브라우저는 Promise를 반환하고, 일부 브라우저는 undefined를 반환합니다.
-      if (result && typeof result.catch === 'function') {
-        result.catch(() => {
-          statusLabel.textContent = '마우스 고정이 차단되었습니다. 게임 화면을 다시 클릭해 주세요.';
-        });
-      }
-    } catch (error) {
-      statusLabel.textContent = '마우스 고정을 시작하지 못했습니다. 게임 화면을 다시 클릭해 주세요.';
-    }
-  }
-
-  resumeButton.addEventListener('click', requestGameLock);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay || event.target === overlayMessage || event.target === overlayTitle) {
-      requestGameLock();
-    }
-  });
-  canvas.addEventListener('click', requestGameLock);
-
-  document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement === canvas) {
-      gameState = 'playing';
-      overlay.hidden = true;
-      statusLabel.textContent = '';
-      canvas.focus({ preventScroll: true });
-    } else if (gameState === 'playing') {
-      // ESC, 브라우저 탭 전환 등으로 포인터 잠금이 풀리면 자동 일시정지합니다.
-      pauseGame();
-    }
-  });
-
-  document.addEventListener('pointerlockerror', () => {
-    statusLabel.textContent = '마우스 제어를 시작하지 못했습니다. 게임 시작 버튼을 다시 눌러 주세요.';
-    showOverlay(gameState === 'ready' ? 'ready' : 'paused', statusLabel.textContent);
-  });
-
-  // 포인터 잠금 중에는 마우스의 상대 이동량(movementX/Y)으로 FPS 시점을 회전합니다.
-  document.addEventListener('mousemove', (event) => {
-    if (gameState !== 'playing' || document.pointerLockElement !== canvas) return;
-    camera.yaw += event.movementX * camera.sensitivity;
-    camera.pitch += event.movementY * camera.sensitivity;
-    camera.pitch = Math.max(-0.55, Math.min(0.78, camera.pitch));
-  });
 
   document.addEventListener('keydown', (event) => {
+    if (controlCodes.has(event.code)) event.preventDefault();
+
     if (event.code === 'Escape') {
-      if (gameState === 'playing') {
-        event.preventDefault();
-        pauseGame();
-      }
+      if (gameState === 'playing') pauseGame();
       return;
     }
 
-    if (gameState !== 'playing') return;
-    if (movementCodes.has(event.code)) event.preventDefault();
+    if (gameState !== 'playing') {
+      if (event.code === 'Enter' && !event.repeat) startGame();
+      return;
+    }
+
     keys[event.code] = true;
 
     if (event.code === 'Space' && !event.repeat && player.grounded) {
@@ -493,12 +405,22 @@
   }
 
   function update(dt) {
+    // 방향키는 이동이 아니라 카메라 시점 조정에만 사용합니다.
+    const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
+    const look = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
+    camera.yaw += turn * camera.turnSpeed * dt;
+    camera.pitch = Math.max(
+      -0.72,
+      Math.min(0.82, camera.pitch + look * camera.lookSpeed * dt)
+    );
+
+    // WASD는 플레이어 이동에만 사용합니다.
     let forward = 0;
     let sideways = 0;
-    if (keys.KeyW || keys.ArrowUp) forward += 1;
-    if (keys.KeyS || keys.ArrowDown) forward -= 1;
-    if (keys.KeyA || keys.ArrowLeft) sideways -= 1;
-    if (keys.KeyD || keys.ArrowRight) sideways += 1;
+    if (keys.KeyW) forward += 1;
+    if (keys.KeyS) forward -= 1;
+    if (keys.KeyA) sideways -= 1;
+    if (keys.KeyD) sideways += 1;
 
     const length = Math.hypot(forward, sideways);
     if (length > 0) {
@@ -510,6 +432,7 @@
       player.z += dz * player.speed * dt;
     }
 
+    // 점프와 중력
     player.y += player.vy * dt;
     player.vy -= 18 * dt;
     if (player.y <= 0) {
