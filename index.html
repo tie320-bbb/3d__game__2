@@ -34,9 +34,11 @@
     line-height: 1.65;
     font-size: 13px;
     backdrop-filter: blur(5px);
+    pointer-events: none;
   }
   #game-hud h2 { margin: 0 0 5px; font-size: 16px; }
   #game-position { color: #a7f3d0; }
+  #game-hits { color: #fca5a5; font-weight: 700; }
   #game-help {
     position: absolute;
     z-index: 5;
@@ -51,6 +53,7 @@
     font-size: 12px;
     white-space: nowrap;
     text-align: center;
+    pointer-events: none;
   }
   #game-overlay {
     position: absolute;
@@ -66,7 +69,7 @@
   }
   #game-overlay[hidden] { display: none !important; }
   #game-overlay-panel {
-    width: min(420px, 100%);
+    width: min(440px, 100%);
     padding: 28px 26px;
     text-align: center;
     background: rgba(17,29,48,.96);
@@ -99,12 +102,6 @@
     font-size: 12px;
     line-height: 1.6;
   }
-  #game-status {
-    min-height: 18px;
-    margin-top: 10px;
-    color: #fbbf24;
-    font-size: 12px;
-  }
   @media (max-width: 600px) {
     #game-shell { height: 680px; min-height: 480px; }
     #game-help { white-space: normal; width: calc(100% - 28px); line-height: 1.5; }
@@ -120,19 +117,20 @@
     <div>이동: WASD</div>
     <div>시점 조정: 방향키</div>
     <div>점프: SPACE</div>
+    <div>공격: ENTER</div>
     <div>일시정지: ESC</div>
+    <div>명중: <span id="game-hits">0</span></div>
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키로 시점 조정 · SPACE 점프 · ESC 일시정지 · ENTER 시작/계속</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 빨간 투사체 발사 · ESC 일시정지</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
       <div id="game-overlay-kicker">3D FIRST PERSON WORLD</div>
       <h2 id="game-overlay-title">게임을 시작할까요?</h2>
-      <p id="game-overlay-message">ENTER 키를 눌러 게임을 시작하세요.</p>
-      <small id="game-overlay-note">방향키로 시점을 돌리고 WASD로 이동하세요. 게임 중 ESC를 누르면 일시정지됩니다.</small>
-      <div id="game-status" aria-live="polite"></div>
+      <p id="game-overlay-message">P 키를 눌러 게임을 시작하세요.</p>
+      <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 공격 · ESC 일시정지</small>
     </div>
   </div>
 </div>
@@ -145,6 +143,7 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const positionLabel = document.getElementById('game-position');
+  const hitsLabel = document.getElementById('game-hits');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
   const overlayMessage = document.getElementById('game-overlay-message');
@@ -154,6 +153,7 @@
   let height = 0;
   let dpr = 1;
   let gameState = 'ready'; // ready | playing | paused
+  let hits = 0;
 
   function resize() {
     const rect = shell.getBoundingClientRect();
@@ -180,7 +180,7 @@
     grounded: true
   };
 
-  // yaw=0일 때 -Z 방향을 바라봅니다. pitch가 양수면 아래를 바라봅니다.
+  // yaw=0이면 -Z 방향을 바라봅니다. pitch가 양수면 아래를 바라봅니다.
   const camera = {
     yaw: 0,
     pitch: 0.17,
@@ -191,8 +191,9 @@
 
   const keys = Object.create(null);
   const controlCodes = new Set([
-    'KeyW', 'KeyA', 'KeyS', 'KeyD',
-    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter'
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Space', 'Enter', 'Escape'
   ]);
 
   function clearKeys() {
@@ -203,12 +204,12 @@
     overlay.hidden = false;
     if (mode === 'ready') {
       overlayTitle.textContent = '게임을 시작할까요?';
-      overlayMessage.textContent = 'ENTER 키를 눌러 게임을 시작하세요.';
-      overlayNote.textContent = 'WASD로 이동하고 방향키로 시점을 조정하세요. SPACE는 점프, ESC는 일시정지입니다.';
+      overlayMessage.textContent = 'P 키를 눌러 게임을 시작하세요.';
+      overlayNote.textContent = 'WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 공격 · ESC 일시정지';
     } else {
       overlayTitle.textContent = '일시정지';
-      overlayMessage.textContent = '게임이 멈췄습니다. ENTER 키를 누르면 이어서 플레이합니다.';
-      overlayNote.textContent = '게임이 진행되는 동안에는 WASD와 방향키로 조작할 수 있습니다.';
+      overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
+      overlayNote.textContent = 'ENTER는 빨간 투사체 발사, ESC는 일시정지입니다.';
     }
   }
 
@@ -225,6 +226,63 @@
     showOverlay('paused');
   }
 
+  // ------------------------------------------------------------
+  // 월드 오브젝트와 투사체
+  // ------------------------------------------------------------
+  const palette = ['#e85d75', '#55aaff', '#f5c542', '#9b72cf', '#38bdf8', '#fb923c'];
+  const objects = [];
+  for (let i = 0; i < 42; i++) {
+    let x, z;
+    do {
+      x = (Math.random() - 0.5) * 58;
+      z = (Math.random() - 0.5) * 58;
+    } while (Math.hypot(x, z) < 7);
+    objects.push({
+      x,
+      z,
+      size: 0.9 + Math.random() * 1.8,
+      color: palette[i % palette.length]
+    });
+  }
+
+  const projectiles = [];
+  const projectileSpeed = 26;
+  const projectileRadius = 0.16;
+  const projectileCooldown = 0.2;
+  let fireCooldown = 0;
+
+  function getCameraForward() {
+    const cosPitch = Math.cos(camera.pitch);
+    return {
+      x: Math.sin(camera.yaw) * cosPitch,
+      y: -Math.sin(camera.pitch),
+      z: -Math.cos(camera.yaw) * cosPitch
+    };
+  }
+
+  function fireProjectile() {
+    if (fireCooldown > 0) return;
+    const direction = getCameraForward();
+    const startDistance = 0.75;
+    const startX = player.x + direction.x * startDistance;
+    const startY = player.y + camera.eyeHeight + direction.y * startDistance;
+    const startZ = player.z + direction.z * startDistance;
+
+    projectiles.push({
+      x: startX,
+      y: startY,
+      z: startZ,
+      previousX: startX,
+      previousY: startY,
+      previousZ: startZ,
+      vx: direction.x * projectileSpeed,
+      vy: direction.y * projectileSpeed,
+      vz: direction.z * projectileSpeed,
+      life: 3.5
+    });
+    fireCooldown = projectileCooldown;
+  }
+
   document.addEventListener('keydown', (event) => {
     if (controlCodes.has(event.code)) event.preventDefault();
 
@@ -234,7 +292,12 @@
     }
 
     if (gameState !== 'playing') {
-      if (event.code === 'Enter' && !event.repeat) startGame();
+      if (event.code === 'KeyP' && !event.repeat) startGame();
+      return;
+    }
+
+    if (event.code === 'Enter') {
+      if (!event.repeat) fireProjectile();
       return;
     }
 
@@ -255,23 +318,10 @@
     if (document.hidden && gameState === 'playing') pauseGame();
   });
 
-  const palette = ['#e85d75', '#55aaff', '#f5c542', '#9b72cf', '#38bdf8', '#fb923c'];
-  const objects = [];
-  for (let i = 0; i < 42; i++) {
-    let x, z;
-    do {
-      x = (Math.random() - 0.5) * 58;
-      z = (Math.random() - 0.5) * 58;
-    } while (Math.hypot(x, z) < 7);
-    objects.push({
-      x,
-      z,
-      size: 0.9 + Math.random() * 1.8,
-      color: palette[i % palette.length]
-    });
-  }
-
-  function project(x, y, z) {
+  // ------------------------------------------------------------
+  // 카메라 좌표와 원근 투영
+  // ------------------------------------------------------------
+  function cameraSpace(x, y, z) {
     const dx = x - player.x;
     const dy = y - (player.y + camera.eyeHeight);
     const dz = z - player.z;
@@ -279,75 +329,136 @@
     const cy = Math.cos(camera.yaw);
     const sp = Math.sin(camera.pitch);
     const cp = Math.cos(camera.pitch);
+
     const right = dx * cy + dz * sy;
-    const up = -dx * sy * sp + dy * cp + dz * cy * sp;
+    // 중요: dz 항의 부호가 반대여야 카메라를 아래로 내릴 때 바닥이 정상적으로 보입니다.
+    const up = -dx * sy * sp + dy * cp - dz * cy * sp;
     const depth = dx * sy * cp - dy * sp - dz * cy * cp;
-    if (depth <= 0.12) return null;
+    return { right, up, depth };
+  }
+
+  function projectCameraPoint(point) {
+    if (point.depth <= 0.12) return null;
     const focal = height / (2 * Math.tan(70 * Math.PI / 360));
-    const scale = focal / depth;
+    const scale = focal / point.depth;
     return {
-      x: width / 2 + right * scale,
-      y: height / 2 - up * scale,
-      depth,
+      x: width / 2 + point.right * scale,
+      y: height / 2 - point.up * scale,
+      depth: point.depth,
       scale
     };
   }
 
+  function project(x, y, z) {
+    return projectCameraPoint(cameraSpace(x, y, z));
+  }
+
+  // 카메라 뒤에 일부가 걸린 바닥도 near plane에서 잘라서 그립니다.
+  function clipPolygonToNearPlane(vertices, near = 0.12) {
+    let output = vertices;
+    const input = output;
+    output = [];
+    if (input.length === 0) return output;
+
+    let previous = input[input.length - 1];
+    let previousInside = previous.depth > near;
+
+    for (const current of input) {
+      const currentInside = current.depth > near;
+      if (currentInside !== previousInside) {
+        const denominator = current.depth - previous.depth;
+        if (Math.abs(denominator) > 1e-9) {
+          const t = (near - previous.depth) / denominator;
+          output.push({
+            right: previous.right + (current.right - previous.right) * t,
+            up: previous.up + (current.up - previous.up) * t,
+            depth: near + 0.001
+          });
+        }
+      }
+      if (currentInside) output.push(current);
+      previous = current;
+      previousInside = currentInside;
+    }
+    return output;
+  }
+
   function drawLine3D(a, b, color, lineWidth = 1) {
-    const p1 = project(a[0], a[1], a[2]);
-    const p2 = project(b[0], b[1], b[2]);
-    if (!p1 || !p2) return;
+    let p1 = cameraSpace(a[0], a[1], a[2]);
+    let p2 = cameraSpace(b[0], b[1], b[2]);
+    const near = 0.12;
+    if (p1.depth <= near && p2.depth <= near) return;
+
+    if (p1.depth <= near || p2.depth <= near) {
+      const t = (near - p1.depth) / (p2.depth - p1.depth);
+      const intersection = {
+        right: p1.right + (p2.right - p1.right) * t,
+        up: p1.up + (p2.up - p1.up) * t,
+        depth: near + 0.001
+      };
+      if (p1.depth <= near) p1 = intersection;
+      else p2 = intersection;
+    }
+
+    const screen1 = projectCameraPoint(p1);
+    const screen2 = projectCameraPoint(p2);
+    if (!screen1 || !screen2) return;
     ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
+    ctx.moveTo(screen1.x, screen1.y);
+    ctx.lineTo(screen2.x, screen2.y);
     ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth;
     ctx.stroke();
   }
 
-  function floorPoint(distance, side) {
-    const sy = Math.sin(camera.yaw);
-    const cy = Math.cos(camera.yaw);
-    const forwardX = sy;
-    const forwardZ = -cy;
-    const rightX = cy;
-    const rightZ = sy;
-    return [
-      player.x + forwardX * distance + rightX * side,
-      0,
-      player.z + forwardZ * distance + rightZ * side
-    ];
-  }
-
+  // ------------------------------------------------------------
+  // 넓은 회색 바닥: 플레이어를 중심으로 한 큰 평면을 카메라 앞쪽만 잘라 투영
+  // ------------------------------------------------------------
   function drawFloor() {
-    const corners = [
-      floorPoint(0.8, -150), floorPoint(170, -150),
-      floorPoint(170, 150), floorPoint(0.8, 150)
-    ].map(point => project(point[0], point[1], point[2]));
+    const radius = 400;
+    const worldCorners = [
+      [player.x - radius, 0, player.z - radius],
+      [player.x + radius, 0, player.z - radius],
+      [player.x + radius, 0, player.z + radius],
+      [player.x - radius, 0, player.z + radius]
+    ];
 
-    if (corners.every(Boolean)) {
+    const cameraCorners = worldCorners.map(point =>
+      cameraSpace(point[0], point[1], point[2])
+    );
+    const clipped = clipPolygonToNearPlane(cameraCorners);
+    const screenCorners = clipped.map(projectCameraPoint).filter(Boolean);
+
+    if (screenCorners.length >= 3) {
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo(corners[0].x, corners[0].y);
-      for (let i = 1; i < corners.length; i++) {
-        ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.moveTo(screenCorners[0].x, screenCorners[0].y);
+      for (let i = 1; i < screenCorners.length; i++) {
+        ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
       }
       ctx.closePath();
       ctx.fillStyle = '#85898e';
       ctx.fill();
+      ctx.restore();
     }
 
-    for (let distance = 2; distance <= 100; distance += 2) {
+    // 바닥 격자선도 near plane에서 잘라 그려 시선을 위/아래로 돌려도 끊기지 않게 합니다.
+    const gridRange = 100;
+    const gridStep = 4;
+    ctx.save();
+    for (let offset = -gridRange; offset <= gridRange; offset += gridStep) {
       drawLine3D(
-        floorPoint(distance, -100), floorPoint(distance, 100),
-        'rgba(55,60,66,0.27)', 1
+        [player.x + offset, 0, player.z - gridRange],
+        [player.x + offset, 0, player.z + gridRange],
+        'rgba(55,60,66,0.25)', 1
+      );
+      drawLine3D(
+        [player.x - gridRange, 0, player.z + offset],
+        [player.x + gridRange, 0, player.z + offset],
+        'rgba(55,60,66,0.25)', 1
       );
     }
-    for (let side = -100; side <= 100; side += 2) {
-      drawLine3D(
-        floorPoint(1, side), floorPoint(110, side),
-        'rgba(55,60,66,0.27)', 1
-      );
-    }
+    ctx.restore();
   }
 
   function shade(hex, factor) {
@@ -395,6 +506,87 @@
     }
   }
 
+  function drawProjectile(projectile) {
+    const point = project(projectile.x, projectile.y, projectile.z);
+    if (!point) return;
+
+    const previous = project(projectile.previousX, projectile.previousY, projectile.previousZ);
+    const radius = Math.max(2.5, Math.min(18, point.scale * projectileRadius));
+
+    if (previous) {
+      ctx.beginPath();
+      ctx.moveTo(previous.x, previous.y);
+      ctx.lineTo(point.x, point.y);
+      ctx.strokeStyle = 'rgba(255,45,45,0.72)';
+      ctx.lineWidth = Math.max(2, radius * 0.9);
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    const glow = ctx.createRadialGradient(
+      point.x, point.y, 0,
+      point.x, point.y, radius * 2.8
+    );
+    glow.addColorStop(0, 'rgba(255,255,220,1)');
+    glow.addColorStop(0.22, 'rgba(255,65,65,0.98)');
+    glow.addColorStop(1, 'rgba(255,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius * 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ff2424';
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function updateProjectiles(dt) {
+    fireCooldown = Math.max(0, fireCooldown - dt);
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const projectile = projectiles[i];
+      projectile.previousX = projectile.x;
+      projectile.previousY = projectile.y;
+      projectile.previousZ = projectile.z;
+
+      projectile.x += projectile.vx * dt;
+      projectile.y += projectile.vy * dt;
+      projectile.z += projectile.vz * dt;
+      projectile.life -= dt;
+
+      // 블록에 맞으면 블록을 제거하고 명중 수를 올립니다.
+      let hitIndex = -1;
+      for (let j = 0; j < objects.length; j++) {
+        const obj = objects[j];
+        const half = obj.size / 2 + projectileRadius;
+        if (
+          projectile.x >= obj.x - half && projectile.x <= obj.x + half &&
+          projectile.y >= -projectileRadius && projectile.y <= obj.size + projectileRadius &&
+          projectile.z >= obj.z - half && projectile.z <= obj.z + half
+        ) {
+          hitIndex = j;
+          break;
+        }
+      }
+
+      if (hitIndex >= 0) {
+        objects.splice(hitIndex, 1);
+        hits += 1;
+        hitsLabel.textContent = String(hits);
+        projectile.life = 0;
+      }
+
+      if (projectile.life <= 0 || Math.hypot(
+        projectile.x - player.x,
+        projectile.y - (player.y + camera.eyeHeight),
+        projectile.z - player.z
+      ) > 110) {
+        projectiles.splice(i, 1);
+      }
+    }
+  }
+
   function drawBackground() {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, '#111d37');
@@ -405,13 +597,13 @@
   }
 
   function update(dt) {
-    // 방향키는 이동이 아니라 카메라 시점 조정에만 사용합니다.
+    // 방향키는 카메라 시점 조정에만 사용합니다.
     const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     const look = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
     camera.yaw += turn * camera.turnSpeed * dt;
     camera.pitch = Math.max(
-      -0.72,
-      Math.min(0.82, camera.pitch + look * camera.lookSpeed * dt)
+      -1.15,
+      Math.min(1.15, camera.pitch + look * camera.lookSpeed * dt)
     );
 
     // WASD는 플레이어 이동에만 사용합니다.
@@ -441,6 +633,7 @@
       player.grounded = true;
     }
 
+    updateProjectiles(dt);
     positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
   }
 
@@ -454,12 +647,16 @@
     drawBackground();
     drawFloor();
 
+    // 멀리 있는 블록부터 렌더링합니다.
     const sorted = objects.map(obj => {
       const center = project(obj.x, obj.size / 2, obj.z);
       return { obj, depth: center ? center.depth : -Infinity };
     }).filter(item => item.depth > 0).sort((a, b) => b.depth - a.depth);
-
     for (const item of sorted) drawCube(item.obj);
+
+    // 투사체는 배경과 바닥, 블록 위에 표시합니다.
+    for (const projectile of projectiles) drawProjectile(projectile);
+
     requestAnimationFrame(render);
   }
 
