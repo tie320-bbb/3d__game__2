@@ -29,7 +29,8 @@ st.markdown(
 
 st.title("🎮 3D 자유 이동 게임")
 st.caption(
-    "1인칭 시점 · WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ESC 일시정지 · 마우스 입력 없음"
+    "1인칭 시점 · WASD 이동 · 방향키 시점 조정 · SPACE 점프 · "
+    "ENTER 빨간 투사체 발사 · ESC 일시정지"
 )
 
 if not html_path.is_file():
@@ -43,6 +44,7 @@ html = html_path.read_text(encoding="utf-8")
 st.html(html, width="stretch", unsafe_allow_javascript=True)
 
 st.caption(
-    "조작: ENTER로 시작/계속, WASD로 이동, 방향키로 시점 회전, "
-    "SPACE로 점프, ESC로 일시정지합니다."
+    "조작: P로 게임 시작/계속, WASD로 이동, 방향키로 시점 회전, "
+    "SPACE로 점프, ENTER로 빨간 투사체 발사, ESC로 일시정지합니다. "
+    "투사체가 블록에 맞으면 블록이 사라지고 명중 수가 올라갑니다."
 )
