@@ -29,7 +29,7 @@ st.markdown(
 
 st.title("🎮 3D 자유 이동 게임")
 st.caption(
-    "1인칭 시점 · WASD 이동 · SPACE 점프 · 마우스 이동으로 시점 회전 · ESC 일시정지"
+    "1인칭 시점 · WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ESC 일시정지 · 마우스 입력 없음"
 )
 
 if not html_path.is_file():
@@ -39,14 +39,10 @@ if not html_path.is_file():
     )
     st.stop()
 
-# 중요: Pointer Lock은 sandbox iframe에서 차단될 수 있습니다.
-# st.html은 iframe을 만들지 않으므로 FPS 방식의 마우스 고정이 가능합니다.
-# 로컬 저장소에 있는 신뢰할 수 있는 게임 코드만 실행하세요.
 html = html_path.read_text(encoding="utf-8")
 st.html(html, width="stretch", unsafe_allow_javascript=True)
 
 st.caption(
-    "조작: 게임 시작을 클릭하면 마우스가 화면 중앙에 고정됩니다. "
-    "마우스 이동으로 시점을 돌리고, ESC를 누르면 일시정지되어 커서가 해제됩니다. "
-    "계속하려면 게임 화면의 계속하기 버튼을 누르세요."
+    "조작: ENTER로 시작/계속, WASD로 이동, 방향키로 시점 회전, "
+    "SPACE로 점프, ESC로 일시정지합니다."
 )
