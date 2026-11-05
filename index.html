@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D First Person World</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; margin: 0; overflow: hidden;
+    background: #111827; font-family: Arial, sans-serif;
+  }
+  #game { display: block; width: 100%; height: 100%; outline: none; cursor: crosshair; }
+  #hud {
+    position: fixed; top: 14px; left: 14px; z-index: 5;
+    color: #fff; background: rgba(0,0,0,.58); padding: 12px 15px;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+    line-height: 1.65; font-size: 13px; pointer-events: none;
+    backdrop-filter: blur(5px);
+  }
+  #hud h2 { margin: 0 0 5px; font-size: 16px; }
+  #position { color: #a7f3d0; }
+  #crosshair {
+    position: fixed; z-index: 4; left: 50%; top: 50%;
+    width: 10px; height: 10px; transform: translate(-50%, -50%);
+    border: 2px solid rgba(255,255,255,.95); border-radius: 50%;
+    box-shadow: 0 0 3px #000; pointer-events: none;
+  }
+  #help {
+    position: fixed; z-index: 5; bottom: 14px; left: 50%;
+    transform: translateX(-50%); color: #fff;
+    background: rgba(0,0,0,.58); border: 1px solid rgba(255,255,255,.12);
+    padding: 9px 14px; border-radius: 10px; font-size: 12px;
+    white-space: nowrap; pointer-events: none; text-align: center;
+  }
+  #start {
+    position: fixed; z-index: 6; left: 50%; top: 50%;
+    transform: translate(-50%, 42px); color: #fff;
+    background: rgba(0,0,0,.5); padding: 7px 11px; border-radius: 8px;
+    font-size: 12px; pointer-events: none; transition: opacity .2s;
+  }
+  @media (max-width: 600px) {
+    #help { white-space: normal; width: calc(100% - 28px); line-height: 1.5; }
+    #hud { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0" aria-label="3D first person game"></canvas>
+<div id="hud">
+  <h2>🎮 3D WORLD · FPS</h2>
+  <div>이동: WASD</div>
+  <div>점프: SPACE</div>
+  <div>시점 회전: 마우스 드래그</div>
+  <div id="position">위치: 0.0, 0.0</div>
+</div>
+<div id="crosshair"></div>
+<div id="help">화면을 클릭한 뒤 WASD 이동 · SPACE 점프 · 마우스 왼쪽 버튼을 누른 채 움직여 시점 회전</div>
+<div id="start">게임 화면을 클릭하면 키보드 조작이 활성화됩니다</div>
+
+<script>
+(() => {
+  'use strict';
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const positionLabel = document.getElementById('position');
+  const startLabel = document.getElementById('start');
+  let width = 0, height = 0, dpr = 1;
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = Math.max(1, rect.width);
+    height = Math.max(1, rect.height);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const player = { x: 0, z: 0, y: 0, vy: 0, speed: 6.0, grounded: true };
+  // yaw=0은 -Z 방향을 바라봅니다. pitch가 양수면 아래를 바라봅니다.
+  const camera = { yaw: 0, pitch: 0.17, eyeHeight: 1.65 };
+  const keys = Object.create(null);
+  let dragging = false;
+  let lastPointerX = 0, lastPointerY = 0;
+
+  canvas.addEventListener('pointerdown', (event) => {
+    canvas.focus();
+    dragging = true;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
+    startLabel.style.opacity = '0';
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - lastPointerX;
+    const dy = event.clientY - lastPointerY;
+    camera.yaw += dx * 0.004;
+    camera.pitch = Math.max(-0.55, Math.min(0.78, camera.pitch + dy * 0.003));
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+  });
+  function stopDragging() { dragging = false; }
+  canvas.addEventListener('pointerup', stopDragging);
+  canvas.addEventListener('pointercancel', stopDragging);
+  canvas.addEventListener('lostpointercapture', stopDragging);
+
+  window.addEventListener('keydown', (event) => {
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
+      event.preventDefault();
+    }
+    keys[event.code] = true;
+    if (event.code === 'Space' && !event.repeat && player.grounded) {
+      player.vy = 7.2;
+      player.grounded = false;
+    }
+    startLabel.style.opacity = '0';
+  });
+  window.addEventListener('keyup', (event) => { keys[event.code] = false; });
+  window.addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] = false; dragging = false; });
+
+  const palette = ['#e85d75', '#55aaff', '#f5c542', '#9b72cf', '#38bdf8', '#fb923c'];
+  const objects = [];
+  // 플레이어 시작 지점 주변을 비워 두고 장식용 3D 블록 배치
+  for (let i = 0; i < 42; i++) {
+    let x, z;
+    do {
+      x = (Math.random() - 0.5) * 58;
+      z = (Math.random() - 0.5) * 58;
+    } while (Math.hypot(x, z) < 7);
+    objects.push({ x, z, size: 0.9 + Math.random() * 1.8, color: palette[i % palette.length] });
+  }
+
+  function project(x, y, z) {
+    const dx = x - player.x;
+    const dy = y - (player.y + camera.eyeHeight);
+    const dz = z - player.z;
+    const sy = Math.sin(camera.yaw), cy = Math.cos(camera.yaw);
+    const sp = Math.sin(camera.pitch), cp = Math.cos(camera.pitch);
+    const right = dx * cy + dz * sy;
+    const up = -dx * sy * sp + dy * cp + dz * cy * sp;
+    const depth = dx * sy * cp - dy * sp - dz * cy * cp;
+    if (depth <= 0.12) return null;
+    const focal = height / (2 * Math.tan(70 * Math.PI / 360));
+    const scale = focal / depth;
+    return { x: width / 2 + right * scale, y: height / 2 - up * scale, depth, scale };
+  }
+
+  function drawLine3D(a, b, color, lineWidth = 1) {
+    const p1 = project(a[0], a[1], a[2]);
+    const p2 = project(b[0], b[1], b[2]);
+    if (!p1 || !p2) return;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+
+  function floorPoint(distance, side) {
+    const sy = Math.sin(camera.yaw), cy = Math.cos(camera.yaw);
+    const forwardX = sy, forwardZ = -cy;
+    const rightX = cy, rightZ = sy;
+    return [
+      player.x + forwardX * distance + rightX * side,
+      0,
+      player.z + forwardZ * distance + rightZ * side
+    ];
+  }
+
+  function drawFloor() {
+    // 넓은 회색 평면
+    const corners = [
+      floorPoint(0.8, -150), floorPoint(170, -150),
+      floorPoint(170, 150), floorPoint(0.8, 150)
+    ].map(p => project(p[0], p[1], p[2]));
+    if (corners.every(Boolean)) {
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.closePath();
+      ctx.fillStyle = '#85898e';
+      ctx.fill();
+    }
+    // 바닥의 은은한 격자선으로 거리감 표현
+    ctx.save();
+    ctx.strokeStyle = 'rgba(55, 60, 66, 0.27)';
+    ctx.lineWidth = 1;
+    for (let distance = 2; distance <= 100; distance += 2) {
+      drawLine3D(floorPoint(distance, -100), floorPoint(distance, 100), 'rgba(55,60,66,0.27)', 1);
+    }
+    for (let side = -100; side <= 100; side += 2) {
+      drawLine3D(floorPoint(1, side), floorPoint(110, side), 'rgba(55,60,66,0.27)', 1);
+    }
+    ctx.restore();
+  }
+
+  function shade(hex, factor) {
+    const value = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, Math.round(((value >> 16) & 255) * factor));
+    const g = Math.min(255, Math.round(((value >> 8) & 255) * factor));
+    const b = Math.min(255, Math.round((value & 255) * factor));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function drawCube(obj) {
+    const { x, z, size, color } = obj;
+    const s = size / 2;
+    const v = [
+      [x-s,0,z-s], [x+s,0,z-s], [x+s,size,z-s], [x-s,size,z-s],
+      [x-s,0,z+s], [x+s,0,z+s], [x+s,size,z+s], [x-s,size,z+s]
+    ];
+    const p = v.map(q => project(q[0], q[1], q[2]));
+    const faces = [
+      { ids:[0,1,2,3], light:0.72 }, { ids:[4,5,6,7], light:0.95 },
+      { ids:[0,1,5,4], light:0.82 }, { ids:[3,2,6,7], light:1.08 },
+      { ids:[0,3,7,4], light:0.68 }, { ids:[1,2,6,5], light:0.9 }
+    ];
+    const visibleFaces = [];
+    for (const face of faces) {
+      if (face.ids.some(i => !p[i])) continue;
+      const depth = face.ids.reduce((sum, i) => sum + p[i].depth, 0) / face.ids.length;
+      visibleFaces.push({ ...face, depth });
+    }
+    visibleFaces.sort((a, b) => b.depth - a.depth);
+    for (const face of visibleFaces) {
+      ctx.beginPath();
+      const first = p[face.ids[0]];
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < face.ids.length; i++) {
+        const point = p[face.ids[i]];
+        ctx.lineTo(point.x, point.y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = shade(color, face.light);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  function drawBackground() {
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#111d37');
+    gradient.addColorStop(0.62, '#39536b');
+    gradient.addColorStop(1, '#647586');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function update(dt) {
+    let forward = 0, sideways = 0;
+    if (keys.KeyW || keys.ArrowUp) forward += 1;
+    if (keys.KeyS || keys.ArrowDown) forward -= 1;
+    if (keys.KeyA || keys.ArrowLeft) sideways -= 1;
+    if (keys.KeyD || keys.ArrowRight) sideways += 1;
+    const length = Math.hypot(forward, sideways);
+    if (length > 0) {
+      forward /= length;
+      sideways /= length;
+      const dx = sideways * Math.cos(camera.yaw) + forward * Math.sin(camera.yaw);
+      const dz = sideways * Math.sin(camera.yaw) - forward * Math.cos(camera.yaw);
+      player.x += dx * player.speed * dt;
+      player.z += dz * player.speed * dt;
+    }
+    // 점프와 중력: 초 단위 dt를 사용해 프레임 속도에 덜 영향을 받음
+    player.y += player.vy * dt;
+    player.vy -= 18 * dt;
+    if (player.y <= 0) {
+      player.y = 0;
+      player.vy = 0;
+      player.grounded = true;
+    }
+    positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
+  }
+
+  let previousTime = performance.now();
+  function render(now) {
+    const dt = Math.min((now - previousTime) / 1000, 0.04);
+    previousTime = now;
+    update(dt);
+    drawBackground();
+    drawFloor();
+    // 카메라 깊이가 큰 오브젝트부터 렌더링
+    const sorted = objects.map(obj => {
+      const center = project(obj.x, obj.size / 2, obj.z);
+      return { obj, depth: center ? center.depth : -Infinity };
+    }).filter(item => item.depth > 0).sort((a, b) => b.depth - a.depth);
+    for (const item of sorted) drawCube(item.obj);
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
