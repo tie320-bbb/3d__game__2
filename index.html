@@ -561,7 +561,7 @@
   function performSlash() {
     if (skills.slashLevel <= 0 || slashCooldown > 0) return;
     slashCooldown = Math.max(0.32, 0.72 - (skills.slashLevel - 1) * 0.06);
-    slashEffect = 0.24;
+    slashEffect = 0.36;
     if (!enemy.active) return;
     const dx = enemy.x - player.x;
     const dz = enemy.z - player.z;
@@ -573,7 +573,8 @@
     const forward = getCameraForward();
     const forwardLength = Math.hypot(forward.x, forward.z) || 1;
     const facing = (dx * (forward.x / forwardLength) + dz * (forward.z / forwardLength)) / distance;
-    const slashRange = 3.2 + Math.min(1.0, (skills.slashLevel - 1) * 0.25);
+    // 기본 사거리를 8m로 늘리고, 참격 스킬 단계에 따라 최대 3m 추가 확장합니다.
+    const slashRange = 8.0 + Math.min(3.0, (skills.slashLevel - 1) * 0.75);
     if (distance <= slashRange + enemy.size * 0.5 && facing >= Math.cos(0.88)) {
       damageEnemy(slashDamage());
     }
@@ -962,25 +963,85 @@
 
   function drawSlashEffect() {
     if (slashEffect <= 0) return;
-    const alpha = Math.min(1, slashEffect / 0.24);
+
+    // 붉은 칼날이 화면 왼쪽에서 오른쪽으로 빠르게 가로지릅니다.
+    const duration = 0.36;
+    const progress = Math.max(0, Math.min(1, 1 - slashEffect / duration));
+    const eased = 1 - Math.pow(1 - progress, 2.2);
+    const fade = Math.min(1, slashEffect / 0.11);
+    const centerX = width * (-0.12 + eased * 1.24);
+    const centerY = height * (0.59 - Math.sin(progress * Math.PI) * 0.055);
+    const bladeLength = Math.min(width * 0.48, 430);
+    const half = bladeLength * 0.5;
+
     ctx.save();
-    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.shadowColor = '#fb7185';
-    ctx.shadowBlur = 18;
-    ctx.strokeStyle = '#fff1f2';
-    ctx.lineWidth = 5;
+
+    // 넓은 붉은 잔광
+    ctx.globalAlpha = 0.34 * fade;
+    ctx.shadowColor = '#ff152f';
+    ctx.shadowBlur = 34;
+    ctx.strokeStyle = '#ff1738';
+    ctx.lineWidth = Math.max(18, height * 0.045);
     ctx.beginPath();
-    ctx.moveTo(width * 0.63, height * 0.61);
-    ctx.quadraticCurveTo(width * 0.50, height * 0.39, width * 0.37, height * 0.57);
+    ctx.moveTo(centerX - half, centerY + height * 0.075);
+    ctx.quadraticCurveTo(centerX, centerY - height * 0.13, centerX + half, centerY - height * 0.025);
     ctx.stroke();
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 2;
+
+    // 선명한 붉은 칼날 본체
+    ctx.globalAlpha = 0.95 * fade;
+    ctx.shadowBlur = 22;
+    ctx.strokeStyle = '#ff263f';
+    ctx.lineWidth = Math.max(7, height * 0.017);
     ctx.beginPath();
-    ctx.moveTo(width * 0.66, height * 0.64);
-    ctx.quadraticCurveTo(width * 0.50, height * 0.42, width * 0.34, height * 0.60);
+    ctx.moveTo(centerX - half, centerY + height * 0.075);
+    ctx.quadraticCurveTo(centerX - bladeLength * 0.04, centerY - height * 0.115, centerX + half, centerY - height * 0.025);
     ctx.stroke();
+
+    // 흰빛이 도는 밝은 칼날 코어
+    ctx.globalAlpha = 0.92 * fade;
+    ctx.shadowColor = '#ffb3bd';
+    ctx.shadowBlur = 13;
+    ctx.strokeStyle = '#ffd7dc';
+    ctx.lineWidth = Math.max(2, height * 0.0045);
+    ctx.beginPath();
+    ctx.moveTo(centerX - half * 0.82, centerY + height * 0.055);
+    ctx.quadraticCurveTo(centerX, centerY - height * 0.075, centerX + half * 0.88, centerY - height * 0.02);
+    ctx.stroke();
+
+    // 칼날 뒤쪽의 붉은 속도 잔상 세 줄
+    ctx.globalAlpha = 0.72 * fade;
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#ff5268';
+    ctx.lineWidth = Math.max(2, height * 0.006);
+    for (let i = 0; i < 3; i++) {
+      const offsetY = (i - 1) * height * 0.025;
+      ctx.beginPath();
+      ctx.moveTo(centerX - half * 0.9, centerY + height * 0.075 + offsetY);
+      ctx.quadraticCurveTo(
+        centerX - half * 0.15,
+        centerY + offsetY - height * 0.07,
+        centerX + half * 0.35,
+        centerY + offsetY
+      );
+      ctx.stroke();
+    }
+
+    // 진행 방향 끝에 붙는 작은 스파크
+    const sparkX = centerX + half * 0.9;
+    const sparkY = centerY - height * 0.025;
+    ctx.globalAlpha = 0.9 * fade;
+    ctx.fillStyle = '#ff9aa7';
+    for (let i = 0; i < 5; i++) {
+      const spread = (i - 2) * height * 0.018;
+      const radius = Math.max(1.5, height * (0.003 + (i % 2) * 0.0015));
+      ctx.beginPath();
+      ctx.arc(sparkX - i * 5, sparkY + spread, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.restore();
   }
 
