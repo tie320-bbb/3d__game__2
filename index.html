@@ -561,7 +561,7 @@
   function performSlash() {
     if (skills.slashLevel <= 0 || slashCooldown > 0) return;
     slashCooldown = Math.max(0.32, 0.72 - (skills.slashLevel - 1) * 0.06);
-    slashEffect = 0.36;
+    slashEffect = 0.18;
     if (!enemy.active) return;
     const dx = enemy.x - player.x;
     const dz = enemy.z - player.z;
@@ -965,7 +965,7 @@
     if (slashEffect <= 0) return;
 
     // 왼쪽 시작점은 고정하고, 궤적의 끝이 오른쪽으로 점점 뻗어 나갑니다.
-    const duration = 0.36;
+    const duration = 0.18;
     const progress = Math.max(0, Math.min(1, 1 - slashEffect / duration));
     const growth = 1 - Math.pow(1 - progress, 1.8);
     const fade = Math.min(1, slashEffect / 0.10);
