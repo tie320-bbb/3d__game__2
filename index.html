@@ -117,15 +117,42 @@
     width: min(820px, 100%); min-height: 470px;
     display: flex; flex-direction: column;
   }
-  #game-skilltree-empty {
+  #game-skill-choices {
     display: none;
-    flex: 1; min-height: 300px; margin: 8px 0 12px;
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 12px;
-    background: rgba(5,12,24,.28);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 14px 0 8px;
+    text-align: left;
   }
-  #game-overlay.levelup #game-skilltree-empty { display: block; }
-  #game-overlay.levelup #game-overlay-message { display: none; }
+  #game-overlay.levelup #game-skill-choices { display: grid; }
+  #game-overlay.levelup #game-overlay-message { display: block; }
+  .game-skill-card {
+    min-height: 180px;
+    padding: 16px 14px;
+    border: 1px solid rgba(167,243,208,.28);
+    border-radius: 14px;
+    background: linear-gradient(160deg, rgba(20,48,55,.95), rgba(13,25,43,.96));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .game-skill-key {
+    display: inline-flex;
+    width: 28px; height: 28px;
+    align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    color: #052e16;
+    background: #86efac;
+    font-weight: 800;
+  }
+  .game-skill-card h3 { margin: 0 0 8px; font-size: 16px; color: #f0fdf4; }
+  .game-skill-card p { min-height: 44px; margin: 0 0 10px; color: #d1d5db; font-size: 13px; line-height: 1.5; }
+  .game-skill-card small { color: #86efac; font-size: 11px; }
+  @media (max-width: 680px) {
+    #game-overlay.levelup #game-overlay-panel { max-height: 92%; overflow-y: auto; }
+    #game-skill-choices { grid-template-columns: 1fr; }
+    .game-skill-card { min-height: 0; }
+    .game-skill-card p { min-height: 0; }
+  }
   #game-overlay.levelup #game-overlay-kicker {
     color: #bbf7d0; background: rgba(34,197,94,.15);
     border-color: rgba(187,247,208,.28);
@@ -186,13 +213,15 @@
     <div>이동: WASD</div>
     <div>시점 조정: 방향키</div>
     <div>조준: 화면 중앙 조준선</div>
-    <div>점프: SPACE</div>
-    <div>공격: ENTER</div>
-    <div>일시정지: ESC</div>
+    <div>점프: SPACE <span id="game-doublejump-status"></span></div>
+    <div>발사: ENTER · 참격: F</div>
+    <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
     <div id="game-xp-track"><div id="game-xp-fill"></div></div>
-    <div>적 명중: <span id="game-hits">0</span></div>
+    <div>적 명중: <span id="game-hits">0</span> · 처치: <span id="game-kills">0</span></div>
+    <div>적 체력: <span id="game-enemy-health">100 / 100</span></div>
+    <div>공격력: <span id="game-damage">25</span> · 참격: <span id="game-slash-status">잠김</span></div>
     <div>적과 거리: <span id="game-enemy-distance">14.0</span>m</div>
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
@@ -204,7 +233,26 @@
       <div id="game-overlay-kicker">3D FIRST PERSON WORLD</div>
       <h2 id="game-overlay-title">게임을 시작할까요?</h2>
       <p id="game-overlay-message">P 키를 눌러 게임을 시작하세요.</p>
-      <div id="game-skilltree-empty" aria-label="비어 있는 스킬 트리 영역"></div>
+      <div id="game-skill-choices" aria-label="레벨업 스킬 선택">
+        <div class="game-skill-card">
+          <span class="game-skill-key">1</span>
+          <h3>공격력 증가</h3>
+          <p id="game-skill-damage-desc">투사체와 참격의 피해량이 증가합니다.</p>
+          <small id="game-skill-damage-level">현재 단계 0</small>
+        </div>
+        <div class="game-skill-card">
+          <span class="game-skill-key">2</span>
+          <h3>짧은 참격</h3>
+          <p id="game-skill-slash-desc">F 키로 전방의 가까운 적을 베는 기술을 습득합니다.</p>
+          <small id="game-skill-slash-level">미습득</small>
+        </div>
+        <div class="game-skill-card">
+          <span class="game-skill-key">3</span>
+          <h3>더블 점프</h3>
+          <p id="game-skill-jump-desc">공중에서 SPACE를 한 번 더 눌러 점프합니다.</p>
+          <small id="game-skill-jump-level">미습득</small>
+        </div>
+      </div>
       <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · 적 명중으로 경험치 획득</small>
     </div>
   </div>
@@ -223,6 +271,11 @@
   const xpText = document.getElementById('game-xp-text');
   const xpFill = document.getElementById('game-xp-fill');
   const enemyDistanceLabel = document.getElementById('game-enemy-distance');
+  const enemyHealthLabel = document.getElementById('game-enemy-health');
+  const killsLabel = document.getElementById('game-kills');
+  const damageLabel = document.getElementById('game-damage');
+  const slashStatusLabel = document.getElementById('game-slash-status');
+  const doubleJumpStatusLabel = document.getElementById('game-doublejump-status');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
   const overlayMessage = document.getElementById('game-overlay-message');
@@ -237,6 +290,8 @@
   let experience = 0;
   let experienceNeeded = 100;
   const experiencePerHit = 25;
+  let kills = 0;
+  const skills = { damageLevel: 0, slashLevel: 0, doubleJumpLevel: 0 };
 
   function resize() {
     const rect = shell.getBoundingClientRect();
@@ -260,7 +315,8 @@
     y: 0,
     vy: 0,
     speed: 6.0,
-    grounded: true
+    grounded: true,
+    jumpCount: 0
   };
 
   // yaw=0이면 -Z 방향을 바라봅니다. pitch가 양수면 아래를 바라봅니다.
@@ -278,9 +334,10 @@
 
   const keys = Object.create(null);
   const controlCodes = new Set([
-    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP',
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP', 'KeyF',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Space', 'Enter', 'Escape'
+    'Space', 'Enter', 'Escape', 'Digit1', 'Digit2', 'Digit3',
+    'Numpad1', 'Numpad2', 'Numpad3'
   ]);
 
   function clearKeys() {
@@ -288,6 +345,37 @@
     // 일시정지나 창 전환 직후 카메라가 관성으로 계속 회전하지 않게 합니다.
     camera.yawVelocity = 0;
     camera.pitchVelocity = 0;
+  }
+
+  function projectileDamage() {
+    return 25 + skills.damageLevel * 15;
+  }
+
+  function slashDamage() {
+    return 45 + Math.max(0, skills.slashLevel - 1) * 20 + skills.damageLevel * 10;
+  }
+
+  function refreshSkillHud() {
+    damageLabel.textContent = String(projectileDamage());
+    slashStatusLabel.textContent = skills.slashLevel > 0 ? `습득 Lv.${skills.slashLevel}` : '잠김';
+    doubleJumpStatusLabel.textContent = skills.doubleJumpLevel > 0 ? '· 더블 점프' : '';
+  }
+
+  function refreshSkillChoices() {
+    document.getElementById('game-skill-damage-desc').textContent = `투사체 피해 +15, 참격 피해 +10 (현재 공격력 ${projectileDamage()})`;
+    document.getElementById('game-skill-damage-level').textContent = `현재 단계 ${skills.damageLevel}`;
+    document.getElementById('game-skill-slash-desc').textContent = skills.slashLevel === 0
+      ? 'F 키로 전방의 가까운 적을 베어 45 피해를 줍니다.'
+      : `참격 피해가 강화됩니다. 다음 피해량: ${slashDamage() + 20}`;
+    document.getElementById('game-skill-slash-level').textContent = skills.slashLevel === 0
+      ? '미습득 · 선택하면 F 키 사용 가능'
+      : `현재 단계 ${skills.slashLevel} · 참격 피해 ${slashDamage()}`;
+    document.getElementById('game-skill-jump-desc').textContent = skills.doubleJumpLevel === 0
+      ? '공중에서 SPACE를 한 번 더 눌러 두 번째 점프를 합니다.'
+      : `두 번째 점프 높이가 강화됩니다. 현재 단계 ${skills.doubleJumpLevel}`;
+    document.getElementById('game-skill-jump-level').textContent = skills.doubleJumpLevel === 0
+      ? '미습득 · 더블 점프 잠김'
+      : `현재 단계 ${skills.doubleJumpLevel} · 공중 추가 점프 사용 가능`;
   }
 
   function showOverlay(mode) {
@@ -298,9 +386,10 @@
       overlayMessage.textContent = 'P 키를 눌러 게임을 시작하세요.';
       overlayNote.textContent = 'WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 공격 · ESC 일시정지';
     } else if (mode === 'levelup') {
+      refreshSkillChoices();
       overlayTitle.textContent = `LEVEL UP!  ·  LEVEL ${level}`;
-      overlayMessage.textContent = '';
-      overlayNote.textContent = '스킬 트리 화면입니다. 현재는 비어 있습니다. ENTER 또는 P를 눌러 계속합니다.';
+      overlayMessage.textContent = '스킬 하나를 선택하세요. 선택하는 동안 게임 시간이 멈춥니다.';
+      overlayNote.textContent = '숫자 1, 2, 3 중 하나를 눌러 스킬을 선택하세요. 같은 스킬을 다시 선택하면 강화됩니다.';
     } else {
       overlayTitle.textContent = '일시정지';
       overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
@@ -335,6 +424,19 @@
     showOverlay('levelup');
   }
 
+  function chooseSkill(choice) {
+    if (gameState !== 'levelup') return;
+    if (choice === '1') skills.damageLevel += 1;
+    else if (choice === '2') skills.slashLevel += 1;
+    else if (choice === '3') skills.doubleJumpLevel += 1;
+    else return;
+    refreshSkillHud();
+    clearKeys();
+    gameState = 'playing';
+    overlay.hidden = true;
+    overlay.classList.remove('levelup');
+  }
+
   function awardExperience(amount) {
     experience += amount;
     if (experience >= experienceNeeded) {
@@ -355,36 +457,68 @@
   // 월드에 흩어져 있던 장식용 박스는 모두 제거했습니다.
   // 빨간 큐브 하나가 플레이어의 위치를 계속 추적합니다.
   const enemy = {
-    x: 0,
-    z: -14,
-    size: 1.8,
-    color: '#ef4444',
-    speed: 2.8,
-    stopDistance: 2.2,
-    flash: 0
+    x: 0, z: -14, size: 1.8, color: '#ef4444', speed: 2.8,
+    maxHealth: 100, health: 100, active: true, respawnTimer: 0, flash: 0
   };
 
+  function refreshEnemyHud() {
+    enemyHealthLabel.textContent = enemy.active
+      ? `${Math.ceil(enemy.health)} / ${enemy.maxHealth}`
+      : '재생성 중';
+  }
+
+  function respawnEnemy() {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 11 + Math.random() * 4;
+    enemy.x = player.x + Math.cos(angle) * distance;
+    enemy.z = player.z + Math.sin(angle) * distance;
+    enemy.health = enemy.maxHealth;
+    enemy.active = true;
+    enemy.respawnTimer = 0;
+    enemy.flash = 0;
+    refreshEnemyHud();
+  }
+
+  function damageEnemy(amount) {
+    if (!enemy.active) return;
+    enemy.health = Math.max(0, enemy.health - amount);
+    enemy.flash = 0.16;
+    hits += 1;
+    hitsLabel.textContent = String(hits);
+    refreshEnemyHud();
+    awardExperience(experiencePerHit);
+    if (enemy.health <= 0) {
+      kills += 1;
+      killsLabel.textContent = String(kills);
+      enemy.active = false;
+      enemy.respawnTimer = 0.9;
+      refreshEnemyHud();
+    }
+  }
+
   function updateEnemy(dt) {
+    if (!enemy.active) {
+      enemy.respawnTimer -= dt;
+      if (enemy.respawnTimer <= 0) respawnEnemy();
+      return;
+    }
     const dx = player.x - enemy.x;
     const dz = player.z - enemy.z;
     const distance = Math.hypot(dx, dz);
-
-    // 플레이어와 일정 거리를 유지하면서 부드럽게 따라옵니다.
-    if (distance > enemy.stopDistance) {
-      const moveDistance = Math.min(
-        enemy.speed * dt,
-        distance - enemy.stopDistance
-      );
-      enemy.x += (dx / distance) * moveDistance;
-      enemy.z += (dz / distance) * moveDistance;
+    // 정사각형 큐브의 실제 면이 플레이어 중심에 닿을 때까지 이동합니다.
+    if (distance > 1e-5) {
+      const nx = dx / distance;
+      const nz = dz / distance;
+      const contactDistance = (enemy.size / 2) / Math.max(Math.abs(nx), Math.abs(nz)) + 0.035;
+      if (distance > contactDistance) {
+        const moveDistance = Math.min(enemy.speed * dt, distance - contactDistance);
+        enemy.x += nx * moveDistance;
+        enemy.z += nz * moveDistance;
+      }
     }
-
     enemy.flash = Math.max(0, enemy.flash - dt);
     enemy.color = enemy.flash > 0 ? '#fff1f2' : '#ef4444';
-    enemyDistanceLabel.textContent = Math.hypot(
-      player.x - enemy.x,
-      player.z - enemy.z
-    ).toFixed(1);
+    enemyDistanceLabel.textContent = Math.hypot(player.x - enemy.x, player.z - enemy.z).toFixed(1);
   }
 
   const projectiles = [];
@@ -421,31 +555,66 @@
     fireCooldown = projectileCooldown;
   }
 
+  let slashCooldown = 0;
+  let slashEffect = 0;
+
+  function performSlash() {
+    if (skills.slashLevel <= 0 || slashCooldown > 0) return;
+    slashCooldown = Math.max(0.32, 0.72 - (skills.slashLevel - 1) * 0.06);
+    slashEffect = 0.24;
+    if (!enemy.active) return;
+    const dx = enemy.x - player.x;
+    const dz = enemy.z - player.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 1e-5) {
+      damageEnemy(slashDamage());
+      return;
+    }
+    const forward = getCameraForward();
+    const forwardLength = Math.hypot(forward.x, forward.z) || 1;
+    const facing = (dx * (forward.x / forwardLength) + dz * (forward.z / forwardLength)) / distance;
+    const slashRange = 3.2 + Math.min(1.0, (skills.slashLevel - 1) * 0.25);
+    if (distance <= slashRange + enemy.size * 0.5 && facing >= Math.cos(0.88)) {
+      damageEnemy(slashDamage());
+    }
+  }
+
   document.addEventListener('keydown', (event) => {
     if (controlCodes.has(event.code)) event.preventDefault();
-
     if (event.code === 'Escape') {
       if (gameState === 'playing') pauseGame();
       return;
     }
-
-    if (gameState !== 'playing') {
-      if (!event.repeat && (event.code === 'KeyP' || (gameState === 'levelup' && event.code === 'Enter'))) {
-        startGame();
+    if (gameState === 'levelup') {
+      if (!event.repeat && ['Digit1','Digit2','Digit3','Numpad1','Numpad2','Numpad3'].includes(event.code)) {
+        const choice = event.code.endsWith('1') ? '1' : event.code.endsWith('2') ? '2' : '3';
+        chooseSkill(choice);
       }
       return;
     }
-
+    if (gameState !== 'playing') {
+      if (!event.repeat && event.code === 'KeyP') startGame();
+      return;
+    }
     if (event.code === 'Enter') {
       if (!event.repeat) fireProjectile();
       return;
     }
-
+    if (event.code === 'KeyF') {
+      if (!event.repeat) performSlash();
+      return;
+    }
     keys[event.code] = true;
-
-    if (event.code === 'Space' && !event.repeat && player.grounded) {
-      player.vy = 7.2;
-      player.grounded = false;
+    if (event.code === 'Space' && !event.repeat) {
+      if (player.grounded) {
+        player.vy = 7.2;
+        player.grounded = false;
+        player.jumpCount = 1;
+      } else if (skills.doubleJumpLevel > 0 && player.jumpCount < 2) {
+        player.vy = 6.7 + Math.min(1.2, (skills.doubleJumpLevel - 1) * 0.25);
+        player.grounded = false;
+        player.jumpCount = 2;
+      }
     }
   });
 
@@ -722,35 +891,47 @@
     ctx.fill();
   }
 
+  function segmentIntersectsAABB(start, end, minimum, maximum) {
+    let tMin = 0, tMax = 1;
+    for (let axis = 0; axis < 3; axis++) {
+      const delta = end[axis] - start[axis];
+      if (Math.abs(delta) < 1e-9) {
+        if (start[axis] < minimum[axis] || start[axis] > maximum[axis]) return false;
+        continue;
+      }
+      let t1 = (minimum[axis] - start[axis]) / delta;
+      let t2 = (maximum[axis] - start[axis]) / delta;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return false;
+    }
+    return true;
+  }
+
   function updateProjectiles(dt) {
     fireCooldown = Math.max(0, fireCooldown - dt);
-
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
       projectile.previousX = projectile.x;
       projectile.previousY = projectile.y;
       projectile.previousZ = projectile.z;
-
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.z += projectile.vz * dt;
       projectile.life -= dt;
 
-      // 유일한 적 큐브와 충돌했는지 확인합니다.
       const enemyHalf = enemy.size / 2 + projectileRadius;
-      const hitEnemy =
-        projectile.x >= enemy.x - enemyHalf && projectile.x <= enemy.x + enemyHalf &&
-        projectile.y >= -projectileRadius && projectile.y <= enemy.size + projectileRadius &&
-        projectile.z >= enemy.z - enemyHalf && projectile.z <= enemy.z + enemyHalf;
-
+      const hitEnemy = enemy.active && segmentIntersectsAABB(
+        [projectile.previousX, projectile.previousY, projectile.previousZ],
+        [projectile.x, projectile.y, projectile.z],
+        [enemy.x - enemyHalf, -projectileRadius, enemy.z - enemyHalf],
+        [enemy.x + enemyHalf, enemy.size + projectileRadius, enemy.z + enemyHalf]
+      );
       if (hitEnemy) {
-        hits += 1;
-        hitsLabel.textContent = String(hits);
-        enemy.flash = 0.2;
         projectile.life = 0;
-        awardExperience(experiencePerHit);
+        damageEnemy(projectileDamage());
       }
-
       if (projectile.life <= 0 || Math.hypot(
         projectile.x - player.x,
         projectile.y - (player.y + camera.eyeHeight),
@@ -760,6 +941,47 @@
       }
       if (gameState === 'levelup') break;
     }
+  }
+
+  function drawEnemyHealthBar() {
+    if (!enemy.active) return;
+    const point = project(enemy.x, enemy.size + 0.35, enemy.z);
+    if (!point) return;
+    const barWidth = Math.max(24, Math.min(90, point.scale * 0.9));
+    const x = point.x - barWidth / 2, y = point.y - 12;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(x, y, barWidth, 6);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(x, y, barWidth * (enemy.health / enemy.maxHealth), 6);
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, barWidth, 6);
+    ctx.restore();
+  }
+
+  function drawSlashEffect() {
+    if (slashEffect <= 0) return;
+    const alpha = Math.min(1, slashEffect / 0.24);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = '#fb7185';
+    ctx.shadowBlur = 18;
+    ctx.strokeStyle = '#fff1f2';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(width * 0.63, height * 0.61);
+    ctx.quadraticCurveTo(width * 0.50, height * 0.39, width * 0.37, height * 0.57);
+    ctx.stroke();
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(width * 0.66, height * 0.64);
+    ctx.quadraticCurveTo(width * 0.50, height * 0.42, width * 0.34, height * 0.60);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawBackground() {
@@ -772,6 +994,9 @@
   }
 
   function update(dt) {
+    slashCooldown = Math.max(0, slashCooldown - dt);
+    slashEffect = Math.max(0, slashEffect - dt);
+
     // 방향키는 카메라 시점 조정에만 사용합니다.
     // 각속도가 즉시 바뀌지 않고 부드럽게 목표 속도에 접근하도록 보간합니다.
     const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
@@ -814,6 +1039,7 @@
       player.y = 0;
       player.vy = 0;
       player.grounded = true;
+      player.jumpCount = 0;
     }
 
     updateEnemy(dt);
@@ -832,15 +1058,21 @@
     drawFloor();
 
     // 다른 박스는 모두 제거하고, 플레이어를 추적하는 적 큐브 하나만 그립니다.
-    drawCube(enemy);
+    if (enemy.active) {
+      drawCube(enemy);
+      drawEnemyHealthBar();
+    }
 
-    // 빨간 투사체를 표시합니다.
+    // 빨간 투사체와 참격 효과를 표시합니다.
     for (const projectile of projectiles) drawProjectile(projectile);
+    drawSlashEffect();
 
     requestAnimationFrame(render);
   }
 
   refreshExperienceHud();
+  refreshEnemyHud();
+  refreshSkillHud();
   showOverlay('ready');
   requestAnimationFrame(render);
 })();
