@@ -71,6 +71,18 @@
   #game-hud h2 { margin: 0 0 5px; font-size: 16px; }
   #game-position { color: #a7f3d0; }
   #game-hits { color: #fca5a5; font-weight: 700; }
+  #game-level { color: #fde68a; font-weight: 700; }
+  #game-xp-row { margin-top: 3px; color: #d1fae5; }
+  #game-xp-track {
+    width: 190px; max-width: 42vw; height: 8px; margin-top: 5px;
+    overflow: hidden; background: rgba(255,255,255,.17);
+    border: 1px solid rgba(255,255,255,.22); border-radius: 999px;
+  }
+  #game-xp-fill {
+    width: 0%; height: 100%; border-radius: inherit;
+    background: linear-gradient(90deg, #22c55e, #a3e635);
+    transition: width .16s ease-out;
+  }
   #game-help {
     position: absolute;
     z-index: 5;
@@ -100,6 +112,24 @@
     backdrop-filter: blur(5px);
   }
   #game-overlay[hidden] { display: none !important; }
+  #game-overlay.levelup { background: rgba(2,8,18,.84); }
+  #game-overlay.levelup #game-overlay-panel {
+    width: min(820px, 100%); min-height: 470px;
+    display: flex; flex-direction: column;
+  }
+  #game-skilltree-empty {
+    display: none;
+    flex: 1; min-height: 300px; margin: 8px 0 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    background: rgba(5,12,24,.28);
+  }
+  #game-overlay.levelup #game-skilltree-empty { display: block; }
+  #game-overlay.levelup #game-overlay-message { display: none; }
+  #game-overlay.levelup #game-overlay-kicker {
+    color: #bbf7d0; background: rgba(34,197,94,.15);
+    border-color: rgba(187,247,208,.28);
+  }
   #game-overlay-panel {
     width: min(440px, 100%);
     padding: 28px 26px;
@@ -159,19 +189,23 @@
     <div>점프: SPACE</div>
     <div>공격: ENTER</div>
     <div>일시정지: ESC</div>
+    <div>레벨: <span id="game-level">1</span></div>
+    <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
+    <div id="game-xp-track"><div id="game-xp-fill"></div></div>
     <div>적 명중: <span id="game-hits">0</span></div>
     <div>적과 거리: <span id="game-enemy-distance">14.0</span>m</div>
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · 빨간 적 큐브가 플레이어를 추적 · ESC 일시정지</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · 적을 맞혀 경험치 획득 · 레벨업 시 스킬 트리 · ESC 일시정지</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
       <div id="game-overlay-kicker">3D FIRST PERSON WORLD</div>
       <h2 id="game-overlay-title">게임을 시작할까요?</h2>
       <p id="game-overlay-message">P 키를 눌러 게임을 시작하세요.</p>
-      <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · ESC 일시정지</small>
+      <div id="game-skilltree-empty" aria-label="비어 있는 스킬 트리 영역"></div>
+      <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · 적 명중으로 경험치 획득</small>
     </div>
   </div>
 </div>
@@ -185,6 +219,9 @@
   const ctx = canvas.getContext('2d');
   const positionLabel = document.getElementById('game-position');
   const hitsLabel = document.getElementById('game-hits');
+  const levelLabel = document.getElementById('game-level');
+  const xpText = document.getElementById('game-xp-text');
+  const xpFill = document.getElementById('game-xp-fill');
   const enemyDistanceLabel = document.getElementById('game-enemy-distance');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
@@ -194,8 +231,12 @@
   let width = 0;
   let height = 0;
   let dpr = 1;
-  let gameState = 'ready'; // ready | playing | paused
+  let gameState = 'ready'; // ready | playing | paused | levelup
   let hits = 0;
+  let level = 1;
+  let experience = 0;
+  let experienceNeeded = 100;
+  const experiencePerHit = 25;
 
   function resize() {
     const rect = shell.getBoundingClientRect();
@@ -251,14 +292,19 @@
 
   function showOverlay(mode) {
     overlay.hidden = false;
+    overlay.classList.toggle('levelup', mode === 'levelup');
     if (mode === 'ready') {
       overlayTitle.textContent = '게임을 시작할까요?';
       overlayMessage.textContent = 'P 키를 눌러 게임을 시작하세요.';
       overlayNote.textContent = 'WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 공격 · ESC 일시정지';
+    } else if (mode === 'levelup') {
+      overlayTitle.textContent = `LEVEL UP!  ·  LEVEL ${level}`;
+      overlayMessage.textContent = '';
+      overlayNote.textContent = '스킬 트리 화면입니다. 현재는 비어 있습니다. ENTER 또는 P를 눌러 계속합니다.';
     } else {
       overlayTitle.textContent = '일시정지';
       overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
-      overlayNote.textContent = '빨간 적 큐브가 플레이어를 따라옵니다. 조준선으로 조준해 ENTER로 공격하고 P로 재개하세요.';
+      overlayNote.textContent = 'P 키로 재개하세요. 레벨업 화면에서는 ENTER 또는 P를 누르면 계속합니다.';
     }
   }
 
@@ -273,6 +319,34 @@
     gameState = 'paused';
     clearKeys();
     showOverlay('paused');
+  }
+
+  function refreshExperienceHud() {
+    levelLabel.textContent = String(level);
+    xpText.textContent = `${experience} / ${experienceNeeded}`;
+    xpFill.style.width = `${Math.max(0, Math.min(100, experience / experienceNeeded * 100))}%`;
+  }
+
+  function openSkillTree() {
+    if (gameState !== 'playing') return;
+    // levelup 상태에서는 update(dt)가 호출되지 않으므로 적·투사체·플레이어 시간이 모두 멈춥니다.
+    gameState = 'levelup';
+    clearKeys();
+    showOverlay('levelup');
+  }
+
+  function awardExperience(amount) {
+    experience += amount;
+    if (experience >= experienceNeeded) {
+      experience -= experienceNeeded;
+      level += 1;
+      experienceNeeded = 100 + (level - 1) * 50;
+      refreshExperienceHud();
+      openSkillTree();
+      return true;
+    }
+    refreshExperienceHud();
+    return false;
   }
 
   // ------------------------------------------------------------
@@ -356,7 +430,9 @@
     }
 
     if (gameState !== 'playing') {
-      if (event.code === 'KeyP' && !event.repeat) startGame();
+      if (!event.repeat && (event.code === 'KeyP' || (gameState === 'levelup' && event.code === 'Enter'))) {
+        startGame();
+      }
       return;
     }
 
@@ -489,7 +565,7 @@
   }
 
   // ------------------------------------------------------------
-  // 넓은 회색 바닥: 플레이어를 중심으로 한 큰 평면을 카메라 앞쪽만 잘라 투영
+  // 넓은 잔디 바닥: 플레이어를 중심으로 한 큰 초록색 평면을 카메라 앞쪽만 잘라 투영
   // ------------------------------------------------------------
   function drawFloor() {
     const radius = 400;
@@ -514,26 +590,54 @@
         ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
       }
       ctx.closePath();
-      ctx.fillStyle = '#85898e';
+      ctx.fillStyle = '#4f8f43';
       ctx.fill();
       ctx.restore();
     }
 
-    // 바닥 격자선도 near plane에서 잘라 그려 시선을 위/아래로 돌려도 끊기지 않게 합니다.
-    const gridRange = 100;
-    const gridStep = 4;
+    // 가까운 지면에는 월드 좌표에 고정된 작은 풀잎을 그려 잔디 질감을 만듭니다.
+    // 셀별 위치는 결정적 해시로 계산하므로 플레이어가 움직여도 풀이 깜빡이지 않습니다.
+    function grassNoise(gx, gz, seed) {
+      const value = Math.sin(gx * 127.1 + gz * 311.7 + seed * 74.7) * 43758.5453;
+      return value - Math.floor(value);
+    }
+
+    const cellSize = 2.0;
+    const cells = 10;
+    const startX = Math.floor(player.x / cellSize);
+    const startZ = Math.floor(player.z / cellSize);
+    const grassColors = [
+      'rgba(28,88,37,0.72)',
+      'rgba(102,159,65,0.78)',
+      'rgba(164,190,91,0.62)',
+      'rgba(52,119,45,0.76)'
+    ];
+
     ctx.save();
-    for (let offset = -gridRange; offset <= gridRange; offset += gridStep) {
-      drawLine3D(
-        [player.x + offset, 0, player.z - gridRange],
-        [player.x + offset, 0, player.z + gridRange],
-        'rgba(55,60,66,0.25)', 1
-      );
-      drawLine3D(
-        [player.x - gridRange, 0, player.z + offset],
-        [player.x + gridRange, 0, player.z + offset],
-        'rgba(55,60,66,0.25)', 1
-      );
+    ctx.lineCap = 'round';
+    for (let gx = startX - cells; gx <= startX + cells; gx++) {
+      for (let gz = startZ - cells; gz <= startZ + cells; gz++) {
+        const worldX = gx * cellSize + grassNoise(gx, gz, 1) * cellSize;
+        const worldZ = gz * cellSize + grassNoise(gx, gz, 2) * cellSize;
+        const localDistance = Math.hypot(worldX - player.x, worldZ - player.z);
+        if (localDistance > 22) continue;
+
+        const bladeCount = 2 + Math.floor(grassNoise(gx, gz, 3) * 2);
+        for (let blade = 0; blade < bladeCount; blade++) {
+          const seed = blade + 4;
+          const bx = worldX + (grassNoise(gx, gz, seed) - 0.5) * 0.42;
+          const bz = worldZ + (grassNoise(gx, gz, seed + 8) - 0.5) * 0.42;
+          const lean = (grassNoise(gx, gz, seed + 12) - 0.5) * 0.18;
+          const bladeHeight = 0.08 + grassNoise(gx, gz, seed + 16) * 0.14;
+          const colorIndex = Math.floor(grassNoise(gx, gz, seed + 20) * grassColors.length);
+          drawLine3D(
+            [bx, 0.015, bz],
+            [bx + lean, bladeHeight, bz + lean * 0.55],
+            grassColors[colorIndex],
+            1.15
+          );
+        }
+      }
     }
     ctx.restore();
   }
@@ -644,6 +748,7 @@
         hitsLabel.textContent = String(hits);
         enemy.flash = 0.2;
         projectile.life = 0;
+        awardExperience(experiencePerHit);
       }
 
       if (projectile.life <= 0 || Math.hypot(
@@ -653,6 +758,7 @@
       ) > 110) {
         projectiles.splice(i, 1);
       }
+      if (gameState === 'levelup') break;
     }
   }
 
@@ -734,6 +840,7 @@
     requestAnimationFrame(render);
   }
 
+  refreshExperienceHud();
   showOverlay('ready');
   requestAnimationFrame(render);
 })();
