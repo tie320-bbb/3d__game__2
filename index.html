@@ -972,8 +972,9 @@
 
     const startX = width * 0.18;
     const startY = height * 0.78;
-    const endX = width * 0.84;
-    const endY = height * 0.18;
+    // 기존보다 짧은 대각선 궤적: 화면 중앙 부근까지만 뻗습니다.
+    const endX = width * 0.58;
+    const endY = height * 0.40;
     const tipX = startX + (endX - startX) * growth;
     const tipY = startY + (endY - startY) * growth;
 
