@@ -972,9 +972,9 @@
 
     const startX = width * 0.18;
     const startY = height * 0.78;
-    // 기존보다 짧은 대각선 궤적: 화면 중앙 부근까지만 뻗습니다.
-    const endX = width * 0.58;
-    const endY = height * 0.40;
+    // 이전의 긴 대각선 길이로 복구합니다.
+    const endX = width * 0.84;
+    const endY = height * 0.18;
     const tipX = startX + (endX - startX) * growth;
     const tipY = startY + (endY - startY) * growth;
 
@@ -1001,17 +1001,17 @@
     ctx.lineCap = 'round';
 
     // 넓은 붉은 발광층
-    drawGrowingStroke(0, '#ff102e', Math.max(25, height * 0.06), 0.32, 38);
+    drawGrowingStroke(0, '#ff102e', Math.max(12, height * 0.028), 0.32, 38);
 
     // 선명한 붉은 칼날
-    drawGrowingStroke(0, '#ff1838', Math.max(10, height * 0.023), 0.98, 24);
+    drawGrowingStroke(0, '#ff1838', Math.max(5, height * 0.012), 0.98, 24);
 
     // 칼날 중앙의 밝은 코어
-    drawGrowingStroke(0, '#ffe4e8', Math.max(2.5, height * 0.0055), 0.98, 15);
+    drawGrowingStroke(0, '#ffe4e8', Math.max(1.4, height * 0.003), 0.98, 15);
 
     // 칼날 양옆의 얇은 평행 잔광
-    drawGrowingStroke(-height * 0.025, '#ff536b', Math.max(2.5, height * 0.006), 0.78, 13);
-    drawGrowingStroke(height * 0.025, '#e11d48', Math.max(2, height * 0.0045), 0.62, 11);
+    drawGrowingStroke(-height * 0.018, '#ff536b', Math.max(1.5, height * 0.0035), 0.78, 13);
+    drawGrowingStroke(height * 0.018, '#e11d48', Math.max(1.2, height * 0.0028), 0.62, 11);
 
     // 확장되는 선의 맨 끝에서 빛나는 붉은 스파크
     ctx.globalAlpha = fade;
