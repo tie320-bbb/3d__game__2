@@ -218,6 +218,7 @@
     <div>발사: ENTER · 참격 연계: F</div>
     <div>가로 파동: <span id="game-wave-slash-status">잠김</span></div>
     <div>급강하: <span id="game-dive-status">잠김</span></div>
+    <div>대시 참격: <span id="game-dash-status">잠김</span></div>
     <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
@@ -231,7 +232,7 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · F 참격 연계 · 더블 점프 후 Shift 급강하 · ESC 일시정지</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · 더블 점프 후 Shift 급강하</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -285,6 +286,7 @@
   const crossSlashStatusLabel = document.getElementById('game-cross-status');
   const waveSlashStatusLabel = document.getElementById('game-wave-slash-status');
   const diveSlamStatusLabel = document.getElementById('game-dive-status');
+  const dashSlashStatusLabel = document.getElementById('game-dash-status');
   const chargeStatusLabel = document.getElementById('game-charge-status');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
@@ -309,7 +311,9 @@
     crossSlashLevel: 0,
     chargeShotLevel: 0,
     waveSlashLevel: 0,
-    diveSlamLevel: 0
+    diveSlamLevel: 0,
+    dashSlashLevel: 0,
+    chargeCapacityLevel: 0
   };
   let currentSkillOffers = [];
   let chargeActive = false;
@@ -318,6 +322,8 @@
   let chargeCount = 0;
   let chargeBurstQueue = [];
   let chargeBurstTimer = 0;
+  let dashState = null;
+  let dashCooldown = 0;
 
   function resize() {
     const rect = shell.getBoundingClientRect();
@@ -362,7 +368,7 @@
   const controlCodes = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP', 'KeyF',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Space', 'Enter', 'Escape', 'ShiftLeft', 'ShiftRight',
+    'Space', 'Enter', 'Escape', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
     'Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'
   ]);
 
@@ -370,6 +376,7 @@
     for (const key of Object.keys(keys)) keys[key] = false;
     camera.yawVelocity = 0;
     camera.pitchVelocity = 0;
+    dashState = null;
     cancelCharge();
   }
 
@@ -392,11 +399,12 @@
   }
 
   function chargeMaximum() {
-    return Math.min(8, 4 + skills.chargeShotLevel);
+    return Math.min(7, 4 + skills.chargeShotLevel + skills.chargeCapacityLevel * 2);
   }
 
   function chargeInterval() {
-    return Math.max(0.16, 0.30 - Math.max(0, skills.chargeShotLevel - 1) * 0.025);
+    // 충전 사격의 순간 화력을 낮추기 위해 구체 장전 간격을 0.30초에서 0.36초로 조정합니다.
+    return 0.36;
   }
 
   function refreshChargeHud() {
@@ -437,6 +445,9 @@
     diveSlamStatusLabel.textContent = skills.diveSlamLevel > 0
       ? (diveActive ? '급강하 중' : '2단 점프 후 Shift')
       : (skills.doubleJumpLevel > 0 ? '후보 등장 가능' : '더블 점프 습득 후 해금');
+    dashSlashStatusLabel.textContent = skills.dashSlashLevel > 0
+      ? (dashState ? '대시 중' : 'Ctrl로 발동')
+      : '잠김';
     refreshChargeHud();
   }
 
@@ -449,7 +460,9 @@
       crossSlash: 'crossSlashLevel',
       chargeShot: 'chargeShotLevel',
       waveSlash: 'waveSlashLevel',
-      diveSlam: 'diveSlamLevel'
+      diveSlam: 'diveSlamLevel',
+      dashSlash: 'dashSlashLevel',
+      chargeCapacity: 'chargeCapacityLevel'
     }[id];
     const nextLevel = skills[levelKey] + 1;
 
@@ -502,6 +515,18 @@
           description: '더블 점프를 한 뒤 공중에서 Shift를 누르면 빠르게 착지하며 주변에 충격파를 일으킵니다.',
           level: '신규 연계 스킬 · 더블 점프 습득 후 해금'
         };
+      case 'dashSlash':
+        return {
+          title: '질풍 대시 참격',
+          description: 'Ctrl을 누르면 바라보는 방향으로 빠르게 돌진하며 경로상의 적을 베어냅니다.',
+          level: '신규 스킬 · Ctrl 키 · 재사용 대기시간 1.1초'
+        };
+      case 'chargeCapacity':
+        return {
+          title: '확장 장전',
+          description: '충전 사격으로 모을 수 있는 투사체가 5개에서 최대 7개로 늘어납니다.',
+          level: '충전 사격 습득 후 해금 · 최대 7발'
+        };
       default:
         return { title: '스킬', description: '', level: '' };
     }
@@ -513,7 +538,8 @@
       slash: 'slashLevel',
       doubleJump: 'doubleJumpLevel',
       powerShot: 'powerShotLevel',
-      chargeShot: 'chargeShotLevel'
+      chargeShot: 'chargeShotLevel',
+      dashSlash: 'dashSlashLevel'
     };
 
     // 이미 습득한 스킬은 후보에서 완전히 제외합니다.
@@ -532,6 +558,10 @@
     // 급강하 충격파는 더블 점프를 배운 뒤에만 등장합니다.
     if (skills.doubleJumpLevel > 0 && skills.diveSlamLevel === 0) {
       pool.push('diveSlam');
+    }
+    // 충전 사격을 습득한 뒤 장전 개수를 7발로 확장하는 후속 스킬입니다.
+    if (skills.chargeShotLevel > 0 && skills.chargeCapacityLevel === 0) {
+      pool.push('chargeCapacity');
     }
 
     for (let i = pool.length - 1; i > 0; i--) {
@@ -619,7 +649,9 @@
       crossSlash: 'crossSlashLevel',
       chargeShot: 'chargeShotLevel',
       waveSlash: 'waveSlashLevel',
-      diveSlam: 'diveSlamLevel'
+      diveSlam: 'diveSlamLevel',
+      dashSlash: 'dashSlashLevel',
+      chargeCapacity: 'chargeCapacityLevel'
     };
     const key = skillKeys[selected];
     if (!key || skills[key] > 0) return;
@@ -922,6 +954,61 @@
     }
   }
 
+  function performDashSlash() {
+    if (skills.dashSlashLevel <= 0 || dashCooldown > 0 || dashState ||
+        gameState !== 'playing') return;
+
+    const forward = getCameraForward();
+    const horizontalLength = Math.hypot(forward.x, forward.z) || 1;
+    const dirX = forward.x / horizontalLength;
+    const dirZ = forward.z / horizontalLength;
+    dashState = {
+      startX: player.x,
+      startZ: player.z,
+      dirX,
+      dirZ,
+      travelled: 0,
+      timeLeft: 0.24,
+      hit: false
+    };
+    dashCooldown = 1.1;
+    slashEffect = 0.10;
+    slashEffectType = 'dash';
+    refreshSkillHud();
+  }
+
+  function updateDash(dt) {
+    if (!dashState) return;
+    const state = dashState;
+    const step = Math.min(dt, state.timeLeft);
+    const distance = 22 * step;
+    player.x += state.dirX * distance;
+    player.z += state.dirZ * distance;
+    state.travelled += distance;
+    state.timeLeft -= step;
+
+    // 돌진 시작점부터 진행한 선분을 기준으로 경로상의 적을 한 번만 타격합니다.
+    if (!state.hit && enemy.active) {
+      const toEnemyX = enemy.x - state.startX;
+      const toEnemyZ = enemy.z - state.startZ;
+      const along = toEnemyX * state.dirX + toEnemyZ * state.dirZ;
+      const across = Math.abs(toEnemyX * -state.dirZ + toEnemyZ * state.dirX);
+      if (along >= -0.8 &&
+          along <= state.travelled + enemy.size * 0.55 &&
+          across <= 1.45 + enemy.size * 0.15) {
+        state.hit = true;
+        slashEffect = 0.10;
+        slashEffectType = 'dash';
+        damageEnemy(Math.round(slashDamage() * 1.2));
+      }
+    }
+
+    if (state.timeLeft <= 0 && dashState === state) {
+      dashState = null;
+      refreshSkillHud();
+    }
+  }
+
   function performSlash() {
     if (skills.slashLevel <= 0 || slashCooldown > 0) return;
     slashCooldown = Math.max(0.32, 0.72 - (skills.slashLevel - 1) * 0.06);
@@ -985,6 +1072,11 @@
 
     if (gameState !== 'playing') {
       if (!event.repeat && event.code === 'KeyP') startGame();
+      return;
+    }
+
+    if (event.code === 'ControlLeft' || event.code === 'ControlRight') {
+      if (!event.repeat) performDashSlash();
       return;
     }
 
@@ -1481,6 +1573,7 @@
     const startX = slashEffectType === 'horizontal' ? width * 0.12 : width * 0.18;
     const endX = slashEffectType === 'horizontal' ? width * 0.88 : width * 0.84;
     const isHorizontal = slashEffectType === 'horizontal';
+    const isDash = slashEffectType === 'dash';
     const startY = isHorizontal ? height * 0.5
       : (slashEffectType === 'cross' ? height * 0.18 : height * 0.78);
     const endY = isHorizontal ? height * 0.5
@@ -1511,11 +1604,11 @@
     ctx.lineCap = 'round';
 
     // 수평 파동은 청록색, 기본 참격은 붉은색으로 구분합니다.
-    const outerColor = isHorizontal ? '#0891b2' : '#ff102e';
-    const mainColor = isHorizontal ? '#22d3ee' : '#ff1838';
-    const sideColor = isHorizontal ? '#67e8f9' : '#ff536b';
-    const edgeColor = isHorizontal ? '#0e7490' : '#e11d48';
-    const glowColor = isHorizontal ? '#22d3ee' : '#ff1c3d';
+    const outerColor = isDash ? '#b45309' : (isHorizontal ? '#0891b2' : '#ff102e');
+    const mainColor = isDash ? '#f59e0b' : (isHorizontal ? '#22d3ee' : '#ff1838');
+    const sideColor = isDash ? '#fcd34d' : (isHorizontal ? '#67e8f9' : '#ff536b');
+    const edgeColor = isDash ? '#92400e' : (isHorizontal ? '#0e7490' : '#e11d48');
+    const glowColor = isDash ? '#fbbf24' : (isHorizontal ? '#22d3ee' : '#ff1c3d');
     drawGrowingStroke(0, outerColor, Math.max(6, height * 0.012), 0.28, 20);
     drawGrowingStroke(0, mainColor, Math.max(2, height * 0.005), 0.96, 13);
     drawGrowingStroke(0, '#f0fdff', Math.max(1, height * 0.0018), 0.98, 7);
@@ -1523,7 +1616,7 @@
     drawGrowingStroke(height * 0.012, edgeColor, Math.max(1, height * 0.0018), 0.56, 6);
 
     ctx.globalAlpha = fade;
-    ctx.fillStyle = isHorizontal ? '#ecfeff' : '#fff4f5';
+    ctx.fillStyle = isDash ? '#fffbeb' : (isHorizontal ? '#ecfeff' : '#fff4f5');
     ctx.shadowColor = glowColor;
     ctx.shadowBlur = 14;
     ctx.beginPath();
@@ -1543,6 +1636,7 @@
 
   function update(dt) {
     slashCooldown = Math.max(0, slashCooldown - dt);
+    dashCooldown = Math.max(0, dashCooldown - dt);
     slashEffect = Math.max(0, slashEffect - dt);
     updateCrossSlash(dt);
     updateWaveSlash(dt);
@@ -1575,7 +1669,7 @@
     if (keys.KeyD) sideways += 1;
 
     const length = Math.hypot(forward, sideways);
-    if (length > 0) {
+    if (length > 0 && !dashState) {
       forward /= length;
       sideways /= length;
       const dx = sideways * Math.cos(camera.yaw) + forward * Math.sin(camera.yaw);
@@ -1583,6 +1677,8 @@
       player.x += dx * player.speed * dt;
       player.z += dz * player.speed * dt;
     }
+
+    updateDash(dt);
 
     // 일반 중력과 급강하 이동
     if (diveActive) player.vy = -25;
