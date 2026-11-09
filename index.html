@@ -159,11 +159,12 @@
     <div>점프: SPACE</div>
     <div>공격: ENTER</div>
     <div>일시정지: ESC</div>
-    <div>명중: <span id="game-hits">0</span></div>
+    <div>적 명중: <span id="game-hits">0</span></div>
+    <div>적과 거리: <span id="game-enemy-distance">14.0</span>m</div>
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · ESC 일시정지</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · 빨간 적 큐브가 플레이어를 추적 · ESC 일시정지</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -184,6 +185,7 @@
   const ctx = canvas.getContext('2d');
   const positionLabel = document.getElementById('game-position');
   const hitsLabel = document.getElementById('game-hits');
+  const enemyDistanceLabel = document.getElementById('game-enemy-distance');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
   const overlayMessage = document.getElementById('game-overlay-message');
@@ -256,7 +258,7 @@
     } else {
       overlayTitle.textContent = '일시정지';
       overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
-      overlayNote.textContent = '화면 중앙 조준선으로 조준하세요. ENTER는 발사, P는 재개입니다.';
+      overlayNote.textContent = '빨간 적 큐브가 플레이어를 따라옵니다. 조준선으로 조준해 ENTER로 공격하고 P로 재개하세요.';
     }
   }
 
@@ -274,22 +276,41 @@
   }
 
   // ------------------------------------------------------------
-  // 월드 오브젝트와 투사체
+  // 단 하나의 적 큐브와 투사체
   // ------------------------------------------------------------
-  const palette = ['#e85d75', '#55aaff', '#f5c542', '#9b72cf', '#38bdf8', '#fb923c'];
-  const objects = [];
-  for (let i = 0; i < 42; i++) {
-    let x, z;
-    do {
-      x = (Math.random() - 0.5) * 58;
-      z = (Math.random() - 0.5) * 58;
-    } while (Math.hypot(x, z) < 7);
-    objects.push({
-      x,
-      z,
-      size: 0.9 + Math.random() * 1.8,
-      color: palette[i % palette.length]
-    });
+  // 월드에 흩어져 있던 장식용 박스는 모두 제거했습니다.
+  // 빨간 큐브 하나가 플레이어의 위치를 계속 추적합니다.
+  const enemy = {
+    x: 0,
+    z: -14,
+    size: 1.8,
+    color: '#ef4444',
+    speed: 2.8,
+    stopDistance: 2.2,
+    flash: 0
+  };
+
+  function updateEnemy(dt) {
+    const dx = player.x - enemy.x;
+    const dz = player.z - enemy.z;
+    const distance = Math.hypot(dx, dz);
+
+    // 플레이어와 일정 거리를 유지하면서 부드럽게 따라옵니다.
+    if (distance > enemy.stopDistance) {
+      const moveDistance = Math.min(
+        enemy.speed * dt,
+        distance - enemy.stopDistance
+      );
+      enemy.x += (dx / distance) * moveDistance;
+      enemy.z += (dz / distance) * moveDistance;
+    }
+
+    enemy.flash = Math.max(0, enemy.flash - dt);
+    enemy.color = enemy.flash > 0 ? '#fff1f2' : '#ef4444';
+    enemyDistanceLabel.textContent = Math.hypot(
+      player.x - enemy.x,
+      player.z - enemy.z
+    ).toFixed(1);
   }
 
   const projectiles = [];
@@ -611,25 +632,17 @@
       projectile.z += projectile.vz * dt;
       projectile.life -= dt;
 
-      // 블록에 맞으면 블록을 제거하고 명중 수를 올립니다.
-      let hitIndex = -1;
-      for (let j = 0; j < objects.length; j++) {
-        const obj = objects[j];
-        const half = obj.size / 2 + projectileRadius;
-        if (
-          projectile.x >= obj.x - half && projectile.x <= obj.x + half &&
-          projectile.y >= -projectileRadius && projectile.y <= obj.size + projectileRadius &&
-          projectile.z >= obj.z - half && projectile.z <= obj.z + half
-        ) {
-          hitIndex = j;
-          break;
-        }
-      }
+      // 유일한 적 큐브와 충돌했는지 확인합니다.
+      const enemyHalf = enemy.size / 2 + projectileRadius;
+      const hitEnemy =
+        projectile.x >= enemy.x - enemyHalf && projectile.x <= enemy.x + enemyHalf &&
+        projectile.y >= -projectileRadius && projectile.y <= enemy.size + projectileRadius &&
+        projectile.z >= enemy.z - enemyHalf && projectile.z <= enemy.z + enemyHalf;
 
-      if (hitIndex >= 0) {
-        objects.splice(hitIndex, 1);
+      if (hitEnemy) {
         hits += 1;
         hitsLabel.textContent = String(hits);
+        enemy.flash = 0.2;
         projectile.life = 0;
       }
 
@@ -697,6 +710,7 @@
       player.grounded = true;
     }
 
+    updateEnemy(dt);
     updateProjectiles(dt);
     positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
   }
@@ -711,14 +725,10 @@
     drawBackground();
     drawFloor();
 
-    // 멀리 있는 블록부터 렌더링합니다.
-    const sorted = objects.map(obj => {
-      const center = project(obj.x, obj.size / 2, obj.z);
-      return { obj, depth: center ? center.depth : -Infinity };
-    }).filter(item => item.depth > 0).sort((a, b) => b.depth - a.depth);
-    for (const item of sorted) drawCube(item.obj);
+    // 다른 박스는 모두 제거하고, 플레이어를 추적하는 적 큐브 하나만 그립니다.
+    drawCube(enemy);
 
-    // 투사체는 배경과 바닥, 블록 위에 표시합니다.
+    // 빨간 투사체를 표시합니다.
     for (const projectile of projectiles) drawProjectile(projectile);
 
     requestAnimationFrame(render);
