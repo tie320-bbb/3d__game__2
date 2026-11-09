@@ -21,6 +21,38 @@
     height: 100%;
     outline: none;
   }
+  #game-crosshair {
+    position: absolute;
+    z-index: 6;
+    left: 50%;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  #game-crosshair span {
+    position: absolute;
+    display: block;
+    background: rgba(255,255,255,.96);
+    border: 1px solid rgba(10,15,25,.82);
+    box-shadow: 0 0 2px rgba(0,0,0,.85);
+    border-radius: 1px;
+  }
+  #game-crosshair .top, #game-crosshair .bottom {
+    width: 2px; height: 7px; left: 12px;
+  }
+  #game-crosshair .top { top: 0; }
+  #game-crosshair .bottom { bottom: 0; }
+  #game-crosshair .left, #game-crosshair .right {
+    width: 7px; height: 2px; top: 12px;
+  }
+  #game-crosshair .left { left: 0; }
+  #game-crosshair .right { right: 0; }
+  #game-crosshair .center {
+    width: 3px; height: 3px; left: 11.5px; top: 11.5px;
+    border-radius: 50%;
+  }
   #game-hud {
     position: absolute;
     top: 14px;
@@ -111,11 +143,19 @@
 
 <div id="game-shell">
   <canvas id="game" tabindex="0" aria-label="3D first person game"></canvas>
+  <div id="game-crosshair" aria-hidden="true">
+    <span class="top"></span>
+    <span class="bottom"></span>
+    <span class="left"></span>
+    <span class="right"></span>
+    <span class="center"></span>
+  </div>
 
   <div id="game-hud">
     <h2>🎮 3D WORLD · FPS</h2>
     <div>이동: WASD</div>
     <div>시점 조정: 방향키</div>
+    <div>조준: 화면 중앙 조준선</div>
     <div>점프: SPACE</div>
     <div>공격: ENTER</div>
     <div>일시정지: ESC</div>
@@ -123,14 +163,14 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 빨간 투사체 발사 · ESC 일시정지</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · ESC 일시정지</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
       <div id="game-overlay-kicker">3D FIRST PERSON WORLD</div>
       <h2 id="game-overlay-title">게임을 시작할까요?</h2>
       <p id="game-overlay-message">P 키를 눌러 게임을 시작하세요.</p>
-      <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 공격 · ESC 일시정지</small>
+      <small id="game-overlay-note">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · 조준선에 조준 후 ENTER 발사 · ESC 일시정지</small>
     </div>
   </div>
 </div>
@@ -185,8 +225,12 @@
     yaw: 0,
     pitch: 0.17,
     eyeHeight: 1.65,
-    turnSpeed: 1.8,
-    lookSpeed: 1.25
+    // 방향키 입력은 부드럽게 가속·감속시켜 카메라 움직임을 자연스럽게 만듭니다.
+    turnSpeed: 2.0,
+    lookSpeed: 1.65,
+    yawVelocity: 0,
+    pitchVelocity: 0,
+    rotationResponse: 11
   };
 
   const keys = Object.create(null);
@@ -198,6 +242,9 @@
 
   function clearKeys() {
     for (const key of Object.keys(keys)) keys[key] = false;
+    // 일시정지나 창 전환 직후 카메라가 관성으로 계속 회전하지 않게 합니다.
+    camera.yawVelocity = 0;
+    camera.pitchVelocity = 0;
   }
 
   function showOverlay(mode) {
@@ -209,7 +256,7 @@
     } else {
       overlayTitle.textContent = '일시정지';
       overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
-      overlayNote.textContent = 'ENTER는 빨간 투사체 발사, ESC는 일시정지입니다.';
+      overlayNote.textContent = '화면 중앙 조준선으로 조준하세요. ENTER는 발사, P는 재개입니다.';
     }
   }
 
@@ -598,13 +645,21 @@
 
   function update(dt) {
     // 방향키는 카메라 시점 조정에만 사용합니다.
+    // 각속도가 즉시 바뀌지 않고 부드럽게 목표 속도에 접근하도록 보간합니다.
     const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     const look = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
-    camera.yaw += turn * camera.turnSpeed * dt;
-    camera.pitch = Math.max(
-      -1.15,
-      Math.min(1.15, camera.pitch + look * camera.lookSpeed * dt)
-    );
+    const response = 1 - Math.exp(-camera.rotationResponse * dt);
+    const targetYawVelocity = turn * camera.turnSpeed;
+    const targetPitchVelocity = look * camera.lookSpeed;
+
+    camera.yawVelocity += (targetYawVelocity - camera.yawVelocity) * response;
+    camera.pitchVelocity += (targetPitchVelocity - camera.pitchVelocity) * response;
+    camera.yaw += camera.yawVelocity * dt;
+
+    const nextPitch = camera.pitch + camera.pitchVelocity * dt;
+    const limitedPitch = Math.max(-1.28, Math.min(1.28, nextPitch));
+    if (limitedPitch !== nextPitch) camera.pitchVelocity = 0;
+    camera.pitch = limitedPitch;
 
     // WASD는 플레이어 이동에만 사용합니다.
     let forward = 0;
