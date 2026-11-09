@@ -158,6 +158,18 @@
     color: #bbf7d0; background: rgba(34,197,94,.15);
     border-color: rgba(187,247,208,.28);
   }
+  #game-overlay.boss-challenge {
+    background: rgba(42, 8, 5, .86);
+  }
+  #game-overlay.boss-challenge #game-overlay-panel {
+    border-color: rgba(251,146,60,.48);
+    box-shadow: 0 18px 65px rgba(120,20,0,.38);
+  }
+  #game-overlay.boss-challenge #game-overlay-kicker {
+    color: #fed7aa;
+    background: rgba(234,88,12,.2);
+    border-color: rgba(251,146,60,.45);
+  }
   #game-overlay-panel {
     width: min(440px, 100%);
     padding: 28px 26px;
@@ -221,6 +233,7 @@
     <div>대시 참격: <span id="game-dash-status">잠김</span></div>
     <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
+    <div>전장: <span id="game-arena-status">초원</span></div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
     <div id="game-xp-track"><div id="game-xp-fill"></div></div>
     <div>적 명중: <span id="game-hits">0</span> · 처치: <span id="game-kills">0</span></div>
@@ -296,7 +309,12 @@
   let width = 0;
   let height = 0;
   let dpr = 1;
-  let gameState = 'ready'; // ready | playing | paused | levelup
+  let gameState = 'ready'; // ready | playing | paused | levelup | bossPrompt
+  let arenaTheme = 'grass';
+  let bossPromptPending = false;
+  let bossPromptShown = false;
+  let bossChallengeAccepted = false;
+  const arenaStatusLabel = document.getElementById('game-arena-status');
   let hits = 0;
   let level = 1;
   let experience = 0;
@@ -403,8 +421,8 @@
   }
 
   function chargeInterval() {
-    // 충전 사격의 순간 화력을 낮추기 위해 구체 장전 간격을 0.30초에서 0.36초로 조정합니다.
-    return 0.36;
+    // 투사체 하나를 충전하는 데 정확히 1초가 걸립니다.
+    return 1.0;
   }
 
   function refreshChargeHud() {
@@ -589,6 +607,7 @@
   function showOverlay(mode) {
     overlay.hidden = false;
     overlay.classList.toggle('levelup', mode === 'levelup');
+    overlay.classList.toggle('boss-challenge', mode === 'bossPrompt');
     if (mode === 'ready') {
       overlayTitle.textContent = '게임을 시작할까요?';
       overlayMessage.textContent = 'P 키를 눌러 게임을 시작하세요.';
@@ -602,6 +621,10 @@
       overlayNote.textContent = currentSkillOffers.length > 0
         ? '숫자 1, 2, 3으로 무작위 스킬을 선택하세요. X자 연속 참격은 기본 참격 습득 후 후보에 포함됩니다.'
         : '모든 스킬 습득 완료 · ENTER 또는 P로 재개';
+    } else if (mode === 'bossPrompt') {
+      overlayTitle.textContent = '보스에 도전하시겠습니까?';
+      overlayMessage.textContent = '용암 전장으로 이동합니다. 보스는 아직 등장하지 않습니다.';
+      overlayNote.textContent = 'O 키: 도전하기 · N 키: 나중에';
     } else {
       overlayTitle.textContent = '일시정지';
       overlayMessage.textContent = '게임이 멈췄습니다. P 키를 누르면 이어서 플레이합니다.';
@@ -609,8 +632,39 @@
     }
   }
 
+  function showBossPrompt() {
+    if (!bossPromptPending || bossPromptShown || bossChallengeAccepted) return;
+    bossPromptPending = false;
+    bossPromptShown = true;
+    clearKeys();
+    gameState = 'bossPrompt';
+    showOverlay('bossPrompt');
+  }
+
+  function acceptBossChallenge() {
+    if (gameState !== 'bossPrompt') return;
+    bossChallengeAccepted = true;
+    arenaTheme = 'lava';
+    arenaStatusLabel.textContent = '용암 전장 · 보스 준비 중';
+    gameState = 'playing';
+    overlay.hidden = true;
+    overlay.classList.remove('boss-challenge', 'levelup');
+  }
+
+  function declineBossChallenge() {
+    if (gameState !== 'bossPrompt') return;
+    gameState = 'playing';
+    arenaStatusLabel.textContent = '초원 · 일반 전투';
+    overlay.hidden = true;
+    overlay.classList.remove('boss-challenge');
+  }
+
   function startGame() {
     clearKeys();
+    if (bossPromptPending) {
+      showBossPrompt();
+      return;
+    }
     gameState = 'playing';
     overlay.hidden = true;
   }
@@ -663,6 +717,7 @@
     gameState = 'playing';
     overlay.hidden = true;
     overlay.classList.remove('levelup');
+    if (bossPromptPending) showBossPrompt();
   }
 
   function awardExperience(amount) {
@@ -672,6 +727,9 @@
       level += 1;
       experienceNeeded = 100 + (level - 1) * 50;
       refreshExperienceHud();
+      if (level >= 10 && !bossPromptShown && !bossChallengeAccepted) {
+        bossPromptPending = true;
+      }
       openSkillTree();
       return true;
     }
@@ -1056,6 +1114,13 @@
 
     if (event.code === 'Escape') {
       if (gameState === 'playing') pauseGame();
+      else if (gameState === 'bossPrompt') declineBossChallenge();
+      return;
+    }
+
+    if (gameState === 'bossPrompt') {
+      if (!event.repeat && event.code === 'KeyO') acceptBossChallenge();
+      else if (!event.repeat && event.code === 'KeyN') declineBossChallenge();
       return;
     }
 
@@ -1256,56 +1321,115 @@
         ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
       }
       ctx.closePath();
-      ctx.fillStyle = '#4f8f43';
+      if (arenaTheme === 'lava') {
+        const glow = 0.5 + Math.sin(performance.now() * 0.0018) * 0.08;
+        const lavaGradient = ctx.createLinearGradient(0, height * 0.42, 0, height);
+        lavaGradient.addColorStop(0, '#41100f');
+        lavaGradient.addColorStop(0.55, '#702013');
+        lavaGradient.addColorStop(1, '#a53a13');
+        ctx.fillStyle = lavaGradient;
+      } else {
+        ctx.fillStyle = '#4f8f43';
+      }
       ctx.fill();
       ctx.restore();
     }
 
-    // 가까운 지면에는 월드 좌표에 고정된 작은 풀잎을 그려 잔디 질감을 만듭니다.
-    // 셀별 위치는 결정적 해시로 계산하므로 플레이어가 움직여도 풀이 깜빡이지 않습니다.
-    function grassNoise(gx, gz, seed) {
+    // 월드 좌표 기반 패턴을 사용해 이동해도 지형 무늬가 깜빡이지 않게 합니다.
+    function floorNoise(gx, gz, seed) {
       const value = Math.sin(gx * 127.1 + gz * 311.7 + seed * 74.7) * 43758.5453;
       return value - Math.floor(value);
     }
 
-    const cellSize = 2.0;
-    const cells = 10;
-    const startX = Math.floor(player.x / cellSize);
-    const startZ = Math.floor(player.z / cellSize);
-    const grassColors = [
-      'rgba(28,88,37,0.72)',
-      'rgba(102,159,65,0.78)',
-      'rgba(164,190,91,0.62)',
-      'rgba(52,119,45,0.76)'
-    ];
+    if (arenaTheme === 'lava') {
+      const cellSize = 4.2;
+      const cells = 7;
+      const startX = Math.floor(player.x / cellSize);
+      const startZ = Math.floor(player.z / cellSize);
+      const time = performance.now() * 0.001;
+      ctx.save();
+      ctx.lineCap = 'round';
 
-    ctx.save();
-    ctx.lineCap = 'round';
-    for (let gx = startX - cells; gx <= startX + cells; gx++) {
-      for (let gz = startZ - cells; gz <= startZ + cells; gz++) {
-        const worldX = gx * cellSize + grassNoise(gx, gz, 1) * cellSize;
-        const worldZ = gz * cellSize + grassNoise(gx, gz, 2) * cellSize;
-        const localDistance = Math.hypot(worldX - player.x, worldZ - player.z);
-        if (localDistance > 22) continue;
+      for (let gx = startX - cells; gx <= startX + cells; gx++) {
+        for (let gz = startZ - cells; gz <= startZ + cells; gz++) {
+          const baseX = gx * cellSize + floorNoise(gx, gz, 1) * cellSize;
+          const baseZ = gz * cellSize + floorNoise(gx, gz, 2) * cellSize;
+          if (Math.hypot(baseX - player.x, baseZ - player.z) > 27) continue;
 
-        const bladeCount = 2 + Math.floor(grassNoise(gx, gz, 3) * 2);
-        for (let blade = 0; blade < bladeCount; blade++) {
-          const seed = blade + 4;
-          const bx = worldX + (grassNoise(gx, gz, seed) - 0.5) * 0.42;
-          const bz = worldZ + (grassNoise(gx, gz, seed + 8) - 0.5) * 0.42;
-          const lean = (grassNoise(gx, gz, seed + 12) - 0.5) * 0.18;
-          const bladeHeight = 0.08 + grassNoise(gx, gz, seed + 16) * 0.14;
-          const colorIndex = Math.floor(grassNoise(gx, gz, seed + 20) * grassColors.length);
-          drawLine3D(
-            [bx, 0.015, bz],
-            [bx + lean, bladeHeight, bz + lean * 0.55],
-            grassColors[colorIndex],
-            1.15
-          );
+          const phase = time * 1.7 + floorNoise(gx, gz, 3) * Math.PI * 2;
+          const pulse = 0.58 + (Math.sin(phase) + 1) * 0.21;
+          const bend = (floorNoise(gx, gz, 4) - 0.5) * 1.2;
+          const p0 = [baseX - 1.25, 0.035, baseZ - 0.9];
+          const p1 = [baseX - 0.25 + bend, 0.04, baseZ - 0.15];
+          const p2 = [baseX + 0.55, 0.035, baseZ + 0.45];
+          const p3 = [baseX + 1.35, 0.04, baseZ + 1.0];
+
+          drawLine3D(p0, p1, `rgba(255,55,12,${0.5 * pulse})`, 6);
+          drawLine3D(p1, p2, `rgba(255,75,8,${0.62 * pulse})`, 5);
+          drawLine3D(p2, p3, `rgba(255,55,8,${0.48 * pulse})`, 5);
+          drawLine3D(p0, p1, `rgba(255,196,75,${0.68 * pulse})`, 1.5);
+          drawLine3D(p1, p2, `rgba(255,220,105,${0.78 * pulse})`, 1.4);
+          drawLine3D(p2, p3, `rgba(255,170,55,${0.62 * pulse})`, 1.3);
+
+          if (floorNoise(gx, gz, 5) > 0.74) {
+            const poolRadius = 0.28 + floorNoise(gx, gz, 6) * 0.34;
+            const poolPhase = time * 2.2 + phase;
+            const poolAlpha = 0.5 + (Math.sin(poolPhase) + 1) * 0.2;
+            for (let seg = 0; seg < 8; seg++) {
+              const a1 = (seg / 8) * Math.PI * 2;
+              const a2 = ((seg + 1) / 8) * Math.PI * 2;
+              drawLine3D(
+                [baseX + Math.cos(a1) * poolRadius, 0.045, baseZ + Math.sin(a1) * poolRadius],
+                [baseX + Math.cos(a2) * poolRadius, 0.045, baseZ + Math.sin(a2) * poolRadius],
+                `rgba(255,190,55,${poolAlpha})`,
+                2.2
+              );
+            }
+          }
         }
       }
+      ctx.restore();
+    } else {
+      // 기본 초원 지형의 풀잎
+      const cellSize = 2.0;
+      const cells = 10;
+      const startX = Math.floor(player.x / cellSize);
+      const startZ = Math.floor(player.z / cellSize);
+      const grassColors = [
+        'rgba(28,88,37,0.72)',
+        'rgba(102,159,65,0.78)',
+        'rgba(164,190,91,0.62)',
+        'rgba(52,119,45,0.76)'
+      ];
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (let gx = startX - cells; gx <= startX + cells; gx++) {
+        for (let gz = startZ - cells; gz <= startZ + cells; gz++) {
+          const worldX = gx * cellSize + floorNoise(gx, gz, 1) * cellSize;
+          const worldZ = gz * cellSize + floorNoise(gx, gz, 2) * cellSize;
+          const localDistance = Math.hypot(worldX - player.x, worldZ - player.z);
+          if (localDistance > 22) continue;
+
+          const bladeCount = 2 + Math.floor(floorNoise(gx, gz, 3) * 2);
+          for (let blade = 0; blade < bladeCount; blade++) {
+            const seed = blade + 4;
+            const bx = worldX + (floorNoise(gx, gz, seed) - 0.5) * 0.42;
+            const bz = worldZ + (floorNoise(gx, gz, seed + 8) - 0.5) * 0.42;
+            const lean = (floorNoise(gx, gz, seed + 12) - 0.5) * 0.18;
+            const bladeHeight = 0.08 + floorNoise(gx, gz, seed + 16) * 0.14;
+            const colorIndex = Math.floor(floorNoise(gx, gz, seed + 20) * grassColors.length);
+            drawLine3D(
+              [bx, 0.015, bz],
+              [bx + lean, bladeHeight, bz + lean * 0.55],
+              grassColors[colorIndex],
+              1.15
+            );
+          }
+        }
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   function shade(hex, factor) {
@@ -1627,9 +1751,15 @@
 
   function drawBackground() {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#111d37');
-    gradient.addColorStop(0.62, '#39536b');
-    gradient.addColorStop(1, '#647586');
+    if (arenaTheme === 'lava') {
+      gradient.addColorStop(0, '#1b101c');
+      gradient.addColorStop(0.58, '#552018');
+      gradient.addColorStop(1, '#a43c17');
+    } else {
+      gradient.addColorStop(0, '#111d37');
+      gradient.addColorStop(0.62, '#39536b');
+      gradient.addColorStop(1, '#647586');
+    }
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
   }
