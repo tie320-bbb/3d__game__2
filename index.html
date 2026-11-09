@@ -964,81 +964,97 @@
   function drawSlashEffect() {
     if (slashEffect <= 0) return;
 
-    // 붉은 칼날이 화면 왼쪽에서 오른쪽으로 빠르게 가로지릅니다.
+    // 왼쪽 시작점은 고정하고, 궤적의 끝이 오른쪽으로 점점 뻗어 나갑니다.
     const duration = 0.36;
     const progress = Math.max(0, Math.min(1, 1 - slashEffect / duration));
-    const eased = 1 - Math.pow(1 - progress, 2.2);
-    const fade = Math.min(1, slashEffect / 0.11);
-    const centerX = width * (-0.12 + eased * 1.24);
-    const centerY = height * (0.59 - Math.sin(progress * Math.PI) * 0.055);
-    const bladeLength = Math.min(width * 0.48, 430);
-    const half = bladeLength * 0.5;
+    const growth = 1 - Math.pow(1 - progress, 1.8);
+    const fade = Math.min(1, slashEffect / 0.10);
+
+    const start = { x: width * 0.22, y: height * 0.67 };
+    const control = { x: width * 0.43, y: height * 0.25 };
+    const finish = { x: width * 0.82, y: height * 0.48 };
+
+    // Quadratic Bezier의 0~growth 구간만 그려 길이가 왼쪽에서 오른쪽으로 자라게 합니다.
+    const tip = {
+      x: (1-growth)*(1-growth)*start.x + 2*(1-growth)*growth*control.x + growth*growth*finish.x,
+      y: (1-growth)*(1-growth)*start.y + 2*(1-growth)*growth*control.y + growth*growth*finish.y
+    };
+    const partialControl = {
+      x: start.x + (control.x - start.x) * growth,
+      y: start.y + (control.y - start.y) * growth
+    };
+
+    function traceGrowingArc() {
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(partialControl.x, partialControl.y, tip.x, tip.y);
+    }
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 넓은 붉은 잔광
-    ctx.globalAlpha = 0.34 * fade;
-    ctx.shadowColor = '#ff152f';
-    ctx.shadowBlur = 34;
+    // 넓은 붉은 에너지가 시작점에서부터 오른쪽으로 확장됩니다.
+    ctx.globalAlpha = 0.38 * fade;
+    ctx.shadowColor = '#ff102d';
+    ctx.shadowBlur = 38;
     ctx.strokeStyle = '#ff1738';
-    ctx.lineWidth = Math.max(18, height * 0.045);
-    ctx.beginPath();
-    ctx.moveTo(centerX - half, centerY + height * 0.075);
-    ctx.quadraticCurveTo(centerX, centerY - height * 0.13, centerX + half, centerY - height * 0.025);
+    ctx.lineWidth = Math.max(20, height * 0.052);
+    traceGrowingArc();
     ctx.stroke();
 
-    // 선명한 붉은 칼날 본체
-    ctx.globalAlpha = 0.95 * fade;
-    ctx.shadowBlur = 22;
+    // 진한 붉은 칼날 궤적
+    ctx.globalAlpha = 0.96 * fade;
+    ctx.shadowBlur = 24;
     ctx.strokeStyle = '#ff263f';
-    ctx.lineWidth = Math.max(7, height * 0.017);
-    ctx.beginPath();
-    ctx.moveTo(centerX - half, centerY + height * 0.075);
-    ctx.quadraticCurveTo(centerX - bladeLength * 0.04, centerY - height * 0.115, centerX + half, centerY - height * 0.025);
+    ctx.lineWidth = Math.max(9, height * 0.021);
+    traceGrowingArc();
     ctx.stroke();
 
-    // 흰빛이 도는 밝은 칼날 코어
-    ctx.globalAlpha = 0.92 * fade;
-    ctx.shadowColor = '#ffb3bd';
-    ctx.shadowBlur = 13;
-    ctx.strokeStyle = '#ffd7dc';
-    ctx.lineWidth = Math.max(2, height * 0.0045);
-    ctx.beginPath();
-    ctx.moveTo(centerX - half * 0.82, centerY + height * 0.055);
-    ctx.quadraticCurveTo(centerX, centerY - height * 0.075, centerX + half * 0.88, centerY - height * 0.02);
+    // 중심의 밝은 흰색-분홍색 에너지 선
+    ctx.globalAlpha = 0.95 * fade;
+    ctx.shadowColor = '#ffc1cb';
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = '#ffe2e6';
+    ctx.lineWidth = Math.max(2.5, height * 0.005);
+    traceGrowingArc();
     ctx.stroke();
 
-    // 칼날 뒤쪽의 붉은 속도 잔상 세 줄
-    ctx.globalAlpha = 0.72 * fade;
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = '#ff5268';
-    ctx.lineWidth = Math.max(2, height * 0.006);
-    for (let i = 0; i < 3; i++) {
-      const offsetY = (i - 1) * height * 0.025;
+    // 궤적 아래쪽에 얇은 붉은 잔상도 같은 시작점에서 함께 자랍니다.
+    for (let i = 1; i <= 3; i++) {
+      const offset = i * height * 0.018;
+      const trailControl = {
+        x: partialControl.x - i * 4,
+        y: partialControl.y + offset
+      };
+      const trailTip = { x: tip.x - i * 7, y: tip.y + offset * 0.45 };
+      ctx.globalAlpha = (0.55 - i * 0.10) * fade;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = i === 1 ? '#ff5369' : '#e11d48';
+      ctx.lineWidth = Math.max(2, height * 0.006);
       ctx.beginPath();
-      ctx.moveTo(centerX - half * 0.9, centerY + height * 0.075 + offsetY);
-      ctx.quadraticCurveTo(
-        centerX - half * 0.15,
-        centerY + offsetY - height * 0.07,
-        centerX + half * 0.35,
-        centerY + offsetY
-      );
+      ctx.moveTo(start.x, start.y + offset);
+      ctx.quadraticCurveTo(trailControl.x, trailControl.y, trailTip.x, trailTip.y);
       ctx.stroke();
     }
 
-    // 진행 방향 끝에 붙는 작은 스파크
-    const sparkX = centerX + half * 0.9;
-    const sparkY = centerY - height * 0.025;
+    // 가장 앞에서 자라나는 끝점에 밝은 스파크를 표시합니다.
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#fff0f2';
+    ctx.shadowColor = '#ff263f';
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, Math.max(3, height * 0.009), 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.globalAlpha = 0.9 * fade;
-    ctx.fillStyle = '#ff9aa7';
+    ctx.fillStyle = '#ff5268';
     for (let i = 0; i < 5; i++) {
-      const spread = (i - 2) * height * 0.018;
+      const spread = (i - 2) * height * 0.014;
       const radius = Math.max(1.5, height * (0.003 + (i % 2) * 0.0015));
       ctx.beginPath();
-      ctx.arc(sparkX - i * 5, sparkY + spread, radius, 0, Math.PI * 2);
+      ctx.arc(tip.x - i * 5, tip.y + spread, radius, 0, Math.PI * 2);
       ctx.fill();
     }
 
