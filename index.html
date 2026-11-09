@@ -215,7 +215,9 @@
     <div>시점 조정: 방향키</div>
     <div>조준: 화면 중앙 조준선</div>
     <div>점프: SPACE <span id="game-doublejump-status"></span></div>
-    <div>발사: ENTER · 참격: F</div>
+    <div>발사: ENTER · 참격 연계: F</div>
+    <div>가로 파동: <span id="game-wave-slash-status">잠김</span></div>
+    <div>급강하: <span id="game-dive-status">잠김</span></div>
     <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
@@ -229,7 +231,7 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · 적을 맞혀 경험치 획득 · 레벨업 시 스킬 트리 · ESC 일시정지</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사 · F 참격 연계 · 더블 점프 후 Shift 급강하 · ESC 일시정지</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -281,6 +283,8 @@
   const doubleJumpStatusLabel = document.getElementById('game-doublejump-status');
   const powerShotStatusLabel = document.getElementById('game-power-status');
   const crossSlashStatusLabel = document.getElementById('game-cross-status');
+  const waveSlashStatusLabel = document.getElementById('game-wave-slash-status');
+  const diveSlamStatusLabel = document.getElementById('game-dive-status');
   const chargeStatusLabel = document.getElementById('game-charge-status');
   const overlay = document.getElementById('game-overlay');
   const overlayTitle = document.getElementById('game-overlay-title');
@@ -303,7 +307,9 @@
     doubleJumpLevel: 0,
     powerShotLevel: 0,
     crossSlashLevel: 0,
-    chargeShotLevel: 0
+    chargeShotLevel: 0,
+    waveSlashLevel: 0,
+    diveSlamLevel: 0
   };
   let currentSkillOffers = [];
   let chargeActive = false;
@@ -356,8 +362,8 @@
   const controlCodes = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP', 'KeyF',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Space', 'Enter', 'Escape', 'Digit1', 'Digit2', 'Digit3',
-    'Numpad1', 'Numpad2', 'Numpad3'
+    'Space', 'Enter', 'Escape', 'ShiftLeft', 'ShiftRight',
+    'Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'
   ]);
 
   function clearKeys() {
@@ -425,6 +431,12 @@
     crossSlashStatusLabel.textContent = skills.crossSlashLevel > 0
       ? `습득 Lv.${skills.crossSlashLevel}`
       : (skills.slashLevel > 0 ? '후보 등장 가능' : '참격 습득 후 해금');
+    waveSlashStatusLabel.textContent = skills.waveSlashLevel > 0
+      ? '습득 · F 연계 마지막 파동'
+      : (skills.crossSlashLevel > 0 ? '후보 등장 가능' : 'X자 참격 습득 후 해금');
+    diveSlamStatusLabel.textContent = skills.diveSlamLevel > 0
+      ? (diveActive ? '급강하 중' : '2단 점프 후 Shift')
+      : (skills.doubleJumpLevel > 0 ? '후보 등장 가능' : '더블 점프 습득 후 해금');
     refreshChargeHud();
   }
 
@@ -435,7 +447,9 @@
       doubleJump: 'doubleJumpLevel',
       powerShot: 'powerShotLevel',
       crossSlash: 'crossSlashLevel',
-      chargeShot: 'chargeShotLevel'
+      chargeShot: 'chargeShotLevel',
+      waveSlash: 'waveSlashLevel',
+      diveSlam: 'diveSlamLevel'
     }[id];
     const nextLevel = skills[levelKey] + 1;
 
@@ -476,6 +490,18 @@
           description: 'ENTER를 짧게 누르면 단발 발사, 길게 누르면 주변에 투사체가 장전되고 놓으면 빠르게 연속 발사합니다.',
           level: `선택 후 최대 ${chargeMaximum() + 1}발 장전`
         };
+      case 'waveSlash':
+        return {
+          title: '수평 파동 참격',
+          description: 'F 참격이 X자로 이어진 뒤, 마지막에 푸른 수평 참격 파동을 전방 원거리로 날립니다.',
+          level: '신규 연계 스킬 · X자 참격 습득 후 해금'
+        };
+      case 'diveSlam':
+        return {
+          title: '급강하 충격파',
+          description: '더블 점프를 한 뒤 공중에서 Shift를 누르면 빠르게 착지하며 주변에 충격파를 일으킵니다.',
+          level: '신규 연계 스킬 · 더블 점프 습득 후 해금'
+        };
       default:
         return { title: '스킬', description: '', level: '' };
     }
@@ -498,6 +524,14 @@
     // X자 연속 참격은 기본 참격을 습득한 뒤, 아직 배우지 않았을 때만 등장합니다.
     if (skills.slashLevel > 0 && skills.crossSlashLevel === 0) {
       pool.push('crossSlash');
+    }
+    // 수평 파동 참격은 X자 참격을 배운 뒤에만 등장합니다.
+    if (skills.crossSlashLevel > 0 && skills.waveSlashLevel === 0) {
+      pool.push('waveSlash');
+    }
+    // 급강하 충격파는 더블 점프를 배운 뒤에만 등장합니다.
+    if (skills.doubleJumpLevel > 0 && skills.diveSlamLevel === 0) {
+      pool.push('diveSlam');
     }
 
     for (let i = pool.length - 1; i > 0; i--) {
@@ -583,7 +617,9 @@
       doubleJump: 'doubleJumpLevel',
       powerShot: 'powerShotLevel',
       crossSlash: 'crossSlashLevel',
-      chargeShot: 'chargeShotLevel'
+      chargeShot: 'chargeShotLevel',
+      waveSlash: 'waveSlashLevel',
+      diveSlam: 'diveSlamLevel'
     };
     const key = skillKeys[selected];
     if (!key || skills[key] > 0) return;
@@ -817,6 +853,11 @@
   let slashEffectType = 'main';
   let crossSlashPending = false;
   let crossSlashTimer = 0;
+  let waveSlashPending = false;
+  let waveSlashTimer = 0;
+  let diveActive = false;
+  const slashWaves = [];
+  const shockwaves = [];
 
   function enemyInSlashArc() {
     if (!enemy.active) return false;
@@ -830,6 +871,55 @@
     const facing = (dx * (forward.x / forwardLength) + dz * (forward.z / forwardLength)) / distance;
     const slashRange = 8.0 + Math.min(3.0, (skills.slashLevel - 1) * 0.75);
     return distance <= slashRange + enemy.size * 0.5 && facing >= Math.cos(0.88);
+  }
+
+  function spawnHorizontalSlashWave() {
+    const forward = getCameraForward();
+    const horizontalLength = Math.hypot(forward.x, forward.z) || 1;
+    const dirX = forward.x / horizontalLength;
+    const dirZ = forward.z / horizontalLength;
+    const rightX = Math.cos(camera.yaw);
+    const rightZ = Math.sin(camera.yaw);
+    const startDistance = 0.9;
+
+    slashWaves.push({
+      x: player.x + dirX * startDistance,
+      z: player.z + dirZ * startDistance,
+      previousX: player.x + dirX * startDistance,
+      previousZ: player.z + dirZ * startDistance,
+      y: player.y + 1.15,
+      vx: dirX * 23,
+      vz: dirZ * 23,
+      rightX,
+      rightZ,
+      halfWidth: 1.65,
+      damage: Math.round(slashDamage() * 1.15),
+      life: 2.2
+    });
+  }
+
+  function performDiveSlam() {
+    if (skills.diveSlamLevel <= 0 || diveActive || player.grounded ||
+        player.y <= 0.05 || player.jumpCount < 2) return;
+    diveActive = true;
+    player.vy = -25;
+    refreshSkillHud();
+  }
+
+  function triggerDiveShockwave() {
+    const radius = 5.8;
+    shockwaves.push({
+      x: player.x,
+      z: player.z,
+      age: 0,
+      radius: 0,
+      maxRadius: radius,
+      life: 0.62
+    });
+
+    if (enemy.active && Math.hypot(enemy.x - player.x, enemy.z - player.z) <= radius + enemy.size * 0.5) {
+      damageEnemy(Math.round(slashDamage() * 1.3));
+    }
   }
 
   function performSlash() {
@@ -857,6 +947,21 @@
       const multiplier = Math.min(1, 0.70 + (skills.crossSlashLevel - 1) * 0.10);
       damageEnemy(Math.round(slashDamage() * multiplier));
     }
+    if (skills.waveSlashLevel > 0) {
+      waveSlashPending = true;
+      waveSlashTimer = 0.14;
+    }
+  }
+
+  function updateWaveSlash(dt) {
+    if (!waveSlashPending) return;
+    waveSlashTimer -= dt;
+    if (waveSlashTimer > 0) return;
+
+    waveSlashPending = false;
+    slashEffect = 0.12;
+    slashEffectType = 'horizontal';
+    spawnHorizontalSlashWave();
   }
 
   document.addEventListener('keydown', (event) => {
@@ -880,6 +985,11 @@
 
     if (gameState !== 'playing') {
       if (!event.repeat && event.code === 'KeyP') startGame();
+      return;
+    }
+
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+      if (!event.repeat) performDiveSlam();
       return;
     }
 
@@ -1240,6 +1350,33 @@
     }
   }
 
+  function updateSlashWaves(dt) {
+    for (let i = slashWaves.length - 1; i >= 0; i--) {
+      const wave = slashWaves[i];
+      wave.previousX = wave.x;
+      wave.previousZ = wave.z;
+      wave.x += wave.vx * dt;
+      wave.z += wave.vz * dt;
+      wave.life -= dt;
+
+      const half = enemy.size * 0.5 + wave.halfWidth;
+      const hitEnemy = enemy.active && segmentIntersectsAABB(
+        [wave.previousX, wave.y, wave.previousZ],
+        [wave.x, wave.y, wave.z],
+        [enemy.x - half, 0, enemy.z - half],
+        [enemy.x + half, enemy.size, enemy.z + half]
+      );
+      if (hitEnemy) {
+        wave.life = 0;
+        damageEnemy(wave.damage);
+      }
+      if (wave.life <= 0 || Math.hypot(wave.x - player.x, wave.z - player.z) > 65) {
+        slashWaves.splice(i, 1);
+      }
+      if (gameState === 'levelup') break;
+    }
+  }
+
   function drawEnemyHealthBar() {
     if (!enemy.active) return;
     const point = project(enemy.x, enemy.size + 0.35, enemy.z);
@@ -1257,6 +1394,82 @@
     ctx.restore();
   }
 
+  function drawSlashWaves() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const wave of slashWaves) {
+      const left = project(
+        wave.x - wave.rightX * wave.halfWidth,
+        wave.y,
+        wave.z - wave.rightZ * wave.halfWidth
+      );
+      const right = project(
+        wave.x + wave.rightX * wave.halfWidth,
+        wave.y,
+        wave.z + wave.rightZ * wave.halfWidth
+      );
+      if (!left || !right) continue;
+
+      const distanceFade = Math.min(1, wave.life / 0.18);
+      const lineWidth = Math.max(3, Math.min(17, (left.scale + right.scale) * 0.055));
+      ctx.globalAlpha = distanceFade;
+      ctx.shadowColor = '#22d3ee';
+      ctx.shadowBlur = lineWidth * 2.8;
+      ctx.strokeStyle = 'rgba(34,211,238,0.96)';
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.stroke();
+
+      ctx.shadowBlur = lineWidth;
+      ctx.strokeStyle = 'rgba(240,253,255,0.98)';
+      ctx.lineWidth = Math.max(1.5, lineWidth * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function updateShockwaves(dt) {
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const effect = shockwaves[i];
+      effect.age += dt;
+      effect.radius = effect.maxRadius * Math.min(1, effect.age / 0.42);
+      if (effect.age >= effect.life) shockwaves.splice(i, 1);
+    }
+  }
+
+  function drawShockwaves() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const effect of shockwaves) {
+      const fade = Math.max(0, 1 - effect.age / effect.life);
+      const points = 44;
+      const lineColor = `rgba(65,220,255,${0.82 * fade})`;
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 15 * fade;
+      for (let i = 0; i < points; i++) {
+        const a1 = (i / points) * Math.PI * 2;
+        const a2 = ((i + 1) / points) * Math.PI * 2;
+        const p1 = [
+          effect.x + Math.cos(a1) * effect.radius, 0.035,
+          effect.z + Math.sin(a1) * effect.radius
+        ];
+        const p2 = [
+          effect.x + Math.cos(a2) * effect.radius, 0.035,
+          effect.z + Math.sin(a2) * effect.radius
+        ];
+        drawLine3D(p1, p2, lineColor, 2.8 * fade + 0.4);
+      }
+    }
+    ctx.restore();
+  }
+
   function drawSlashEffect() {
     if (slashEffect <= 0) return;
 
@@ -1265,10 +1478,13 @@
     const growth = Math.min(1, progress * 1.65);
     const fade = Math.min(1, slashEffect / 0.035);
 
-    const startX = width * 0.18;
-    const endX = width * 0.84;
-    const startY = slashEffectType === 'cross' ? height * 0.18 : height * 0.78;
-    const endY = slashEffectType === 'cross' ? height * 0.78 : height * 0.18;
+    const startX = slashEffectType === 'horizontal' ? width * 0.12 : width * 0.18;
+    const endX = slashEffectType === 'horizontal' ? width * 0.88 : width * 0.84;
+    const isHorizontal = slashEffectType === 'horizontal';
+    const startY = isHorizontal ? height * 0.5
+      : (slashEffectType === 'cross' ? height * 0.18 : height * 0.78);
+    const endY = isHorizontal ? height * 0.5
+      : (slashEffectType === 'cross' ? height * 0.78 : height * 0.18);
     const tipX = startX + (endX - startX) * growth;
     const tipY = startY + (endY - startY) * growth;
 
@@ -1294,16 +1510,21 @@
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
 
-    // 더 가느다란 붉은 발광선과 칼날 본체
-    drawGrowingStroke(0, '#ff102e', Math.max(6, height * 0.012), 0.28, 20);
-    drawGrowingStroke(0, '#ff1838', Math.max(2, height * 0.005), 0.96, 13);
-    drawGrowingStroke(0, '#ffe4e8', Math.max(1, height * 0.0018), 0.98, 7);
-    drawGrowingStroke(-height * 0.012, '#ff536b', Math.max(1, height * 0.0022), 0.68, 7);
-    drawGrowingStroke(height * 0.012, '#e11d48', Math.max(1, height * 0.0018), 0.56, 6);
+    // 수평 파동은 청록색, 기본 참격은 붉은색으로 구분합니다.
+    const outerColor = isHorizontal ? '#0891b2' : '#ff102e';
+    const mainColor = isHorizontal ? '#22d3ee' : '#ff1838';
+    const sideColor = isHorizontal ? '#67e8f9' : '#ff536b';
+    const edgeColor = isHorizontal ? '#0e7490' : '#e11d48';
+    const glowColor = isHorizontal ? '#22d3ee' : '#ff1c3d';
+    drawGrowingStroke(0, outerColor, Math.max(6, height * 0.012), 0.28, 20);
+    drawGrowingStroke(0, mainColor, Math.max(2, height * 0.005), 0.96, 13);
+    drawGrowingStroke(0, '#f0fdff', Math.max(1, height * 0.0018), 0.98, 7);
+    drawGrowingStroke(-height * 0.012, sideColor, Math.max(1, height * 0.0022), 0.68, 7);
+    drawGrowingStroke(height * 0.012, edgeColor, Math.max(1, height * 0.0018), 0.56, 6);
 
     ctx.globalAlpha = fade;
-    ctx.fillStyle = '#fff4f5';
-    ctx.shadowColor = '#ff1c3d';
+    ctx.fillStyle = isHorizontal ? '#ecfeff' : '#fff4f5';
+    ctx.shadowColor = glowColor;
     ctx.shadowBlur = 14;
     ctx.beginPath();
     ctx.arc(tipX, tipY, Math.max(2, height * 0.006), 0, Math.PI * 2);
@@ -1324,6 +1545,7 @@
     slashCooldown = Math.max(0, slashCooldown - dt);
     slashEffect = Math.max(0, slashEffect - dt);
     updateCrossSlash(dt);
+    updateWaveSlash(dt);
     if (gameState !== 'playing') return;
     updateChargeSystem(dt);
 
@@ -1362,18 +1584,27 @@
       player.z += dz * player.speed * dt;
     }
 
-    // 점프와 중력
+    // 일반 중력과 급강하 이동
+    if (diveActive) player.vy = -25;
     player.y += player.vy * dt;
-    player.vy -= 18 * dt;
+    if (!diveActive) player.vy -= 18 * dt;
     if (player.y <= 0) {
+      const landedFromDive = diveActive;
       player.y = 0;
       player.vy = 0;
       player.grounded = true;
       player.jumpCount = 0;
+      diveActive = false;
+      if (landedFromDive) {
+        triggerDiveShockwave();
+        refreshSkillHud();
+      }
     }
 
     updateEnemy(dt);
     updateProjectiles(dt);
+    updateSlashWaves(dt);
+    updateShockwaves(dt);
     positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
   }
 
@@ -1386,6 +1617,7 @@
 
     drawBackground();
     drawFloor();
+    drawShockwaves();
 
     // 다른 박스는 모두 제거하고, 플레이어를 추적하는 적 큐브 하나만 그립니다.
     if (enemy.active) {
@@ -1395,6 +1627,7 @@
 
     // 투사체, 충전 중인 구체, 참격 효과를 표시합니다.
     for (const projectile of projectiles) drawProjectile(projectile);
+    drawSlashWaves();
     drawChargeOrbs();
     drawSlashEffect();
 
