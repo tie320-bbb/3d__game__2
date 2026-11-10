@@ -234,6 +234,7 @@
     <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
     <div>전장: <span id="game-arena-status">초원</span></div>
+    <div id="game-boss-entry-hint" hidden>보스 도전 가능 · O 키</div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
     <div id="game-xp-track"><div id="game-xp-fill"></div></div>
     <div>적 명중: <span id="game-hits">0</span> · 처치: <span id="game-kills">0</span></div>
@@ -247,7 +248,7 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · 더블 점프 후 Shift 급강하</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · 레벨 10부터 O 키로 보스 입장</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -312,11 +313,10 @@
   let width = 0;
   let height = 0;
   let dpr = 1;
-  let gameState = 'ready'; // ready | playing | paused | levelup | bossPrompt
+  let gameState = 'ready'; // ready | playing | paused | levelup
   let arenaTheme = 'grass';
-  let bossPromptPending = false;
-  let bossPromptShown = false;
   let bossChallengeAccepted = false;
+  const bossEntryHint = document.getElementById('game-boss-entry-hint');
   const playerInvincible = true;
   const dragonFireballDamage = 24;
   const dragon = {
@@ -404,7 +404,7 @@
   const controlCodes = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP', 'KeyF',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'Space', 'Enter', 'Escape', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
+    'Space', 'Enter', 'Escape', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyO',
     'Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'
   ]);
 
@@ -650,40 +650,23 @@
     }
   }
 
-  function showBossPrompt() {
-    if (!bossPromptPending || bossPromptShown || bossChallengeAccepted) return;
-    bossPromptPending = false;
-    bossPromptShown = true;
-    clearKeys();
-    gameState = 'bossPrompt';
-    showOverlay('bossPrompt');
-  }
+  function enterBossArena() {
+    if (level < 10 || bossChallengeAccepted ||
+        (gameState !== 'playing' && gameState !== 'paused')) return;
 
-  function acceptBossChallenge() {
-    if (gameState !== 'bossPrompt') return;
+    clearKeys();
     bossChallengeAccepted = true;
     arenaTheme = 'lava';
     arenaStatusLabel.textContent = '용암 전장 · 드래곤 보스';
+    bossEntryHint.hidden = true;
     startDragonBoss();
     gameState = 'playing';
     overlay.hidden = true;
     overlay.classList.remove('boss-challenge', 'levelup');
   }
 
-  function declineBossChallenge() {
-    if (gameState !== 'bossPrompt') return;
-    gameState = 'playing';
-    arenaStatusLabel.textContent = '초원 · 일반 전투';
-    overlay.hidden = true;
-    overlay.classList.remove('boss-challenge');
-  }
-
   function startGame() {
     clearKeys();
-    if (bossPromptPending) {
-      showBossPrompt();
-      return;
-    }
     gameState = 'playing';
     overlay.hidden = true;
   }
@@ -699,6 +682,12 @@
     levelLabel.textContent = String(level);
     xpText.textContent = `${experience} / ${experienceNeeded}`;
     xpFill.style.width = `${Math.max(0, Math.min(100, experience / experienceNeeded * 100))}%`;
+    bossEntryHint.hidden = level < 10 || bossChallengeAccepted;
+    if (!bossChallengeAccepted && level >= 10) {
+      arenaStatusLabel.textContent = '보스 도전 가능 · O';
+    } else if (!bossChallengeAccepted) {
+      arenaStatusLabel.textContent = '초원';
+    }
   }
 
   function openSkillTree() {
@@ -736,7 +725,6 @@
     gameState = 'playing';
     overlay.hidden = true;
     overlay.classList.remove('levelup');
-    if (bossPromptPending) showBossPrompt();
   }
 
   function awardExperience(amount) {
@@ -746,9 +734,6 @@
       level += 1;
       experienceNeeded = 100 + (level - 1) * 50;
       refreshExperienceHud();
-      if (level >= 10 && !bossPromptShown && !bossChallengeAccepted) {
-        bossPromptPending = true;
-      }
       openSkillTree();
       return true;
     }
@@ -1195,7 +1180,7 @@
       dirX,
       dirZ,
       travelled: 0,
-      timeLeft: 0.24,
+      timeLeft: 0.36,
       hit: false
     };
     dashCooldown = 1.1;
@@ -1208,7 +1193,7 @@
     if (!dashState) return;
     const state = dashState;
     const step = Math.min(dt, state.timeLeft);
-    const distance = 22 * step;
+    const distance = 25 * step;
     player.x += state.dirX * distance;
     player.z += state.dirZ * distance;
     state.travelled += distance;
@@ -1283,13 +1268,6 @@
 
     if (event.code === 'Escape') {
       if (gameState === 'playing') pauseGame();
-      else if (gameState === 'bossPrompt') declineBossChallenge();
-      return;
-    }
-
-    if (gameState === 'bossPrompt') {
-      if (!event.repeat && event.code === 'KeyO') acceptBossChallenge();
-      else if (!event.repeat && event.code === 'KeyN') declineBossChallenge();
       return;
     }
 
@@ -1301,6 +1279,12 @@
                  (event.code === 'Enter' || event.code === 'KeyP')) {
         startGame();
       }
+      return;
+    }
+
+    if ((gameState === 'playing' || gameState === 'paused') &&
+        event.code === 'KeyO') {
+      if (!event.repeat) enterBossArena();
       return;
     }
 
