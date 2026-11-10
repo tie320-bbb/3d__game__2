@@ -239,7 +239,7 @@
     <div id="game-xp-track"><div id="game-xp-fill"></div></div>
     <div>적 명중: <span id="game-hits">0</span> · 처치: <span id="game-kills">0</span></div>
     <div>적 체력: <span id="game-enemy-health">100 / 100</span></div>
-    <div>드래곤 체력: <span id="game-dragon-health">대기 중</span></div>
+    <div>보스 체력: <span id="game-dragon-health">대기 중</span></div>
     <div>보스 화염구 공격력: 24 · 플레이어: 무적</div>
     <div>공격력: <span id="game-damage">25</span> · 강화탄: <span id="game-power-status">잠김</span></div>
     <div>참격: <span id="game-slash-status">잠김</span> · X 연속 참격: <span id="game-cross-status">잠김</span></div>
@@ -248,7 +248,7 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · O 키로 언제든 보스방 즉시 입장</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · O 키로 드래곤/고릴라 보스 전환</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -317,6 +317,7 @@
   let gameState = 'ready'; // ready | playing | paused | levelup
   let arenaTheme = 'grass';
   let bossChallengeAccepted = false;
+  let bossType = 'none'; // none | dragon | gorilla
   const bossEntryHint = document.getElementById('game-boss-entry-hint');
   const playerInvincible = true;
   const dragonFireballDamage = 24;
@@ -356,6 +357,26 @@
   const dragonFireballs = [];
   const dragonFireImpacts = [];
   const dragonSlamEffects = [];
+  const gorillaImpactEffects = [];
+  const gorilla = {
+    active: false,
+    x: 0, y: 0, z: -12,
+    yaw: Math.PI * 0.5,
+    time: 0,
+    health: 3200,
+    maxHealth: 3200,
+    flash: 0,
+    state: 'patrol',
+    stateTime: 0,
+    orbit: 0.7,
+    idleYaw: 0,
+    targetYaw: 0,
+    chargeFromX: 0,
+    chargeFromZ: 0,
+    chargeDirX: 0,
+    chargeDirZ: 1,
+    chargeDistance: 10.5
+  };
   let dragonTransformCache = null;
   const floorNoiseCache = new Map();
   const arenaStatusLabel = document.getElementById('game-arena-status');
@@ -677,9 +698,8 @@
     }
   }
 
-  function enterBossArena() {
-    if (bossChallengeAccepted) return;
 
+  function enterDragonArena() {
     clearKeys();
     crossSlashPending = false;
     crossSlashTimer = 0;
@@ -687,13 +707,52 @@
     waveSlashTimer = 0;
     currentSkillOffers = [];
     bossChallengeAccepted = true;
+    bossType = 'dragon';
     arenaTheme = 'lava';
-    arenaStatusLabel.textContent = '용암 전장 · 드래곤 보스';
-    bossEntryHint.hidden = true;
+    arenaStatusLabel.textContent = '용암 전장 · 화염의 고룡';
+    bossEntryHint.hidden = false;
+    bossEntryHint.textContent = 'O 키 · 고릴라 보스로 전환';
     startDragonBoss();
     gameState = 'playing';
     overlay.hidden = true;
     overlay.classList.remove('boss-challenge', 'levelup');
+    projectiles.length = 0;
+    slashWaves.length = 0;
+    shockwaves.length = 0;
+    gorillaImpactEffects.length = 0;
+  }
+
+  function enterGorillaArena() {
+    clearKeys();
+    crossSlashPending = false;
+    crossSlashTimer = 0;
+    waveSlashPending = false;
+    waveSlashTimer = 0;
+    currentSkillOffers = [];
+    bossChallengeAccepted = true;
+    bossType = 'gorilla';
+    arenaTheme = 'jungle';
+    arenaStatusLabel.textContent = '정글 유적 · 거대 고릴라';
+    bossEntryHint.hidden = false;
+    bossEntryHint.textContent = 'O 키 · 드래곤 보스로 전환';
+    startGorillaBoss();
+    gameState = 'playing';
+    overlay.hidden = true;
+    overlay.classList.remove('boss-challenge', 'levelup');
+    projectiles.length = 0;
+    slashWaves.length = 0;
+    shockwaves.length = 0;
+    dragonFireballs.length = 0;
+    dragonFireImpacts.length = 0;
+    dragonSlamEffects.length = 0;
+  }
+
+  function enterBossArena() {
+    if (!bossChallengeAccepted || bossType === 'gorilla') {
+      enterDragonArena();
+    } else {
+      enterGorillaArena();
+    }
   }
 
   function startGame() {
@@ -911,6 +970,8 @@
   }
 
   function startDragonBoss() {
+    bossType = 'dragon';
+    gorilla.active = false;
     enemy.active = false;
     enemy.respawnTimer = 0;
     refreshEnemyHud();
@@ -946,25 +1007,41 @@
   }
 
 
+
   function refreshDragonHud() {
-    if (!bossChallengeAccepted) {
+    if (!bossChallengeAccepted || bossType === 'none') {
       dragonHealthLabel.textContent = '대기 중';
       return;
     }
-    if (!dragon.active) {
-      dragonHealthLabel.textContent = '격파 완료';
+    if (bossType === 'gorilla') {
+      if (!gorilla.active) {
+        dragonHealthLabel.textContent = '고릴라 격파 완료';
+        return;
+      }
+      const labels = {
+        patrol: '순찰 중',
+        chestbeat: '가슴 두드리기',
+        windup: '돌진 준비',
+        charge: '돌진 중',
+        recover: '회복 중'
+      };
+      dragonHealthLabel.textContent =
+        `고릴라 ${Math.ceil(gorilla.health)} / ${gorilla.maxHealth} · ${labels[gorilla.state] || '대기'}`;
       return;
     }
-
+    if (!dragon.active) {
+      dragonHealthLabel.textContent = '드래곤 격파 완료';
+      return;
+    }
     const phaseLabel = dragon.groundPhase === 'landing' ? '착지 중'
       : (dragon.groundPhase === 'rest' ? '지상 휴식 중'
         : (dragon.groundPhase === 'takeoff' ? '이륙 중' : '비행 중'));
     dragonHealthLabel.textContent =
-      `${Math.ceil(dragon.health)} / ${dragon.maxHealth} · ${phaseLabel}`;
+      `고룡 ${Math.ceil(dragon.health)} / ${dragon.maxHealth} · ${phaseLabel}`;
   }
 
   function damageDragon(amount) {
-    if (!bossChallengeAccepted || !dragon.active) return;
+    if (!bossChallengeAccepted || bossType !== 'dragon' || !dragon.active) return;
     dragon.health = Math.max(0, dragon.health - amount);
     dragon.flash = 0.14;
     refreshDragonHud();
@@ -972,6 +1049,20 @@
       dragon.active = false;
       dragonFireballs.length = 0;
       arenaStatusLabel.textContent = '용암 전장 · 드래곤 격파';
+    }
+  }
+
+
+  function damageGorilla(amount) {
+    if (!bossChallengeAccepted || bossType !== 'gorilla' || !gorilla.active) return;
+    gorilla.health = Math.max(0, gorilla.health - amount);
+    gorilla.flash = 0.16;
+    refreshDragonHud();
+    if (gorilla.health <= 0) {
+      gorilla.active = false;
+      gorillaImpactEffects.length = 0;
+      arenaStatusLabel.textContent = '정글 유적 · 고릴라 격파';
+      refreshDragonHud();
     }
   }
 
@@ -1848,6 +1939,11 @@
         lavaGradient.addColorStop(0.55, '#702013');
         lavaGradient.addColorStop(1, '#a53a13');
         ctx.fillStyle = lavaGradient;
+      } else if (arenaTheme === 'jungle') {
+        const ruinGradient = ctx.createLinearGradient(0, height * 0.42, 0, height);
+        ruinGradient.addColorStop(0, '#26372d');
+        ruinGradient.addColorStop(1, '#687052');
+        ctx.fillStyle = ruinGradient;
       } else {
         ctx.fillStyle = '#4f8f43';
       }
@@ -1932,6 +2028,44 @@
       ctx.strokeStyle = 'rgba(255,190,55,' + (0.56 * pulse) + ')';
       ctx.lineWidth = 2.0;
       ctx.stroke(poolPath);
+      ctx.restore();
+    } else if (arenaTheme === 'jungle') {
+      const cellSize = 4.4;
+      const cells = 7;
+      const startX = Math.floor(player.x / cellSize);
+      const startZ = Math.floor(player.z / cellSize);
+      const stoneFaces = [new Path2D(), new Path2D(), new Path2D()];
+      const stoneColors = ['#4b5140', '#59604a', '#66634b'];
+      for (let gx = startX - cells; gx <= startX + cells; gx++) {
+        for (let gz = startZ - cells; gz <= startZ + cells; gz++) {
+          const seed = floorNoise(gx, gz, 8);
+          const offsetX = (floorNoise(gx, gz, 9) - 0.5) * 0.65;
+          const offsetZ = (floorNoise(gx, gz, 10) - 0.5) * 0.65;
+          const cx = gx * cellSize + cellSize * 0.5 + offsetX;
+          const cz = gz * cellSize + cellSize * 0.5 + offsetZ;
+          if (Math.hypot(cx - player.x, cz - player.z) > 29) continue;
+          const half = cellSize * (0.43 + seed * 0.035);
+          const corners = [
+            [cx - half, 0.025, cz - half],
+            [cx + half, 0.025, cz - half + offsetZ * 0.2],
+            [cx + half - offsetX * 0.2, 0.025, cz + half],
+            [cx - half, 0.025, cz + half]
+          ].map(p => project(p[0], p[1], p[2]));
+          if (corners.some(p => !p)) continue;
+          const path = stoneFaces[Math.floor(seed * stoneFaces.length)];
+          path.moveTo(corners[0].x, corners[0].y);
+          for (let i = 1; i < corners.length; i++) path.lineTo(corners[i].x, corners[i].y);
+          path.closePath();
+        }
+      }
+      ctx.save();
+      for (let i = 0; i < stoneFaces.length; i++) {
+        ctx.fillStyle = stoneColors[i];
+        ctx.fill(stoneFaces[i]);
+      }
+      ctx.strokeStyle = 'rgba(19,28,20,0.65)';
+      ctx.lineWidth = 1.4;
+      for (const path of stoneFaces) ctx.stroke(path);
       ctx.restore();
     } else {
       // 초원은 원래 밀도의 풀잎을 유지합니다.
@@ -2823,6 +2957,7 @@
     return true;
   }
 
+
   function updateProjectiles(dt) {
     fireCooldown = Math.max(0, fireCooldown - dt);
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -2835,27 +2970,38 @@
       projectile.z += projectile.vz * dt;
       projectile.life -= dt;
 
-      const hitDragon = bossChallengeAccepted && dragon.active &&
+      const from = [projectile.previousX, projectile.previousY, projectile.previousZ];
+      const to = [projectile.x, projectile.y, projectile.z];
+      const hitDragon = bossChallengeAccepted && bossType === 'dragon' && dragon.active &&
         segmentIntersectsAABB(
-          [projectile.previousX, projectile.previousY, projectile.previousZ],
-          [projectile.x, projectile.y, projectile.z],
+          from, to,
           [dragon.x - 3.1, dragon.y - 1.8, dragon.z - 4.2],
           [dragon.x + 3.1, dragon.y + 1.8, dragon.z + 4.2]
         );
+      const hitGorilla = bossChallengeAccepted && bossType === 'gorilla' && gorilla.active &&
+        segmentIntersectsAABB(
+          from, to,
+          [gorilla.x - 2.35, 0, gorilla.z - 1.8],
+          [gorilla.x + 2.35, 4.1, gorilla.z + 1.8]
+        );
       const enemyHalf = enemy.size / 2 + projectileRadius;
       const hitEnemy = !bossChallengeAccepted && enemy.active && segmentIntersectsAABB(
-        [projectile.previousX, projectile.previousY, projectile.previousZ],
-        [projectile.x, projectile.y, projectile.z],
+        from, to,
         [enemy.x - enemyHalf, -projectileRadius, enemy.z - enemyHalf],
         [enemy.x + enemyHalf, enemy.size + projectileRadius, enemy.z + enemyHalf]
       );
+
       if (hitDragon) {
         projectile.life = 0;
         damageDragon(projectile.damage || projectileDamage());
+      } else if (hitGorilla) {
+        projectile.life = 0;
+        damageGorilla(projectile.damage || projectileDamage());
       } else if (hitEnemy) {
         projectile.life = 0;
         damageEnemy(projectile.damage || projectileDamage());
       }
+
       if (projectile.life <= 0 || Math.hypot(
         projectile.x - player.x,
         projectile.y - (player.y + camera.eyeHeight),
@@ -2895,7 +3041,7 @@
   }
 
   function drawDragonHealthBar() {
-    if (!bossChallengeAccepted || !dragon.active) return;
+    if (!bossChallengeAccepted || bossType !== 'dragon' || !dragon.active) return;
     const point = project(dragon.x, dragon.y + 2.6, dragon.z);
     if (!point) return;
     const barWidth = Math.max(110, Math.min(280, point.scale * 3.2));
@@ -3040,7 +3186,7 @@
 
 
   function drawDragonSlamTelegraph() {
-    if (!bossChallengeAccepted ||
+    if (!bossChallengeAccepted || bossType !== 'dragon' ||
         (dragon.slamPhase !== 'spin' && dragon.slamPhase !== 'dive')) return;
 
     const pulse = 0.72 + Math.sin(dragon.time * 13) * 0.18;
@@ -3062,7 +3208,7 @@
 
 
   function drawDragonSlamEffects() {
-    if (dragonSlamEffects.length === 0) return;
+    if (bossType !== 'dragon' || dragonSlamEffects.length === 0) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
@@ -3167,12 +3313,17 @@
     ctx.restore();
   }
 
+
   function drawBackground() {
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     if (arenaTheme === 'lava') {
       gradient.addColorStop(0, '#1b101c');
       gradient.addColorStop(0.58, '#552018');
       gradient.addColorStop(1, '#a43c17');
+    } else if (arenaTheme === 'jungle') {
+      gradient.addColorStop(0, '#0b1e1b');
+      gradient.addColorStop(0.55, '#254b35');
+      gradient.addColorStop(1, '#82734a');
     } else {
       gradient.addColorStop(0, '#111d37');
       gradient.addColorStop(0.62, '#39536b');
@@ -3180,6 +3331,394 @@
     }
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
+  }
+
+
+  function gorillaTurnTowards(current, target, maxStep) {
+    const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+    return current + Math.max(-maxStep, Math.min(maxStep, delta));
+  }
+
+  function startGorillaBoss() {
+    dragon.active = false;
+    gorillaImpactEffects.length = 0;
+    gorilla.active = true;
+    gorilla.x = player.x + 12;
+    gorilla.y = 0;
+    gorilla.z = player.z - 1;
+    gorilla.yaw = Math.PI * 0.5;
+    gorilla.time = 0;
+    gorilla.health = gorilla.maxHealth;
+    gorilla.flash = 0;
+    gorilla.state = 'patrol';
+    gorilla.stateTime = 0;
+    gorilla.orbit = 0;
+    gorilla.idleYaw = gorilla.yaw + 1.35;
+    gorilla.targetYaw = gorilla.yaw;
+    gorilla.chargeFromX = gorilla.x;
+    gorilla.chargeFromZ = gorilla.z;
+    gorilla.chargeDirX = 0;
+    gorilla.chargeDirZ = 1;
+    gorilla.chargeDistance = 10.5;
+    refreshDragonHud();
+  }
+
+  function updateGorilla(dt) {
+    if (!bossChallengeAccepted || bossType !== 'gorilla' || !gorilla.active) return;
+    gorilla.time += dt;
+    gorilla.stateTime += dt;
+    gorilla.flash = Math.max(0, gorilla.flash - dt);
+
+    if (gorilla.state === 'patrol') {
+      // 원형 순찰 경로를 따라 이동하며, 몸은 진행 방향을 향합니다. 플레이어를 계속 쳐다보지 않습니다.
+      gorilla.orbit += dt * 0.14;
+      const targetX = player.x + Math.cos(gorilla.orbit) * 11.5;
+      const targetZ = player.z + Math.sin(gorilla.orbit) * 11.5;
+      const follow = Math.min(1, dt * 2.4);
+      gorilla.x += (targetX - gorilla.x) * follow;
+      gorilla.z += (targetZ - gorilla.z) * follow;
+      const tangentYaw = Math.atan2(-Math.sin(gorilla.orbit), Math.cos(gorilla.orbit));
+      gorilla.yaw = gorillaTurnTowards(gorilla.yaw, tangentYaw, dt * 2.0);
+
+      if (gorilla.stateTime >= 5.2) {
+        gorilla.state = 'chestbeat';
+        gorilla.stateTime = 0;
+        const turnSign = Math.random() < 0.5 ? -1 : 1;
+        gorilla.idleYaw = gorilla.yaw + turnSign * (1.05 + Math.random() * 0.75);
+      }
+      return;
+    }
+
+    if (gorilla.state === 'chestbeat') {
+      // 플레이어 방향과 무관하게 옆이나 뒤를 바라보며 가슴을 두드립니다.
+      gorilla.yaw = gorillaTurnTowards(gorilla.yaw, gorilla.idleYaw, dt * 2.2);
+      if (gorilla.stateTime >= 2.25) {
+        gorilla.state = 'windup';
+        gorilla.stateTime = 0;
+        gorilla.targetYaw = Math.atan2(player.x - gorilla.x, player.z - gorilla.z);
+      }
+      return;
+    }
+
+    if (gorilla.state === 'windup') {
+      // 돌진 준비 때만 한 번 플레이어 쪽으로 몸을 돌리고 방향을 고정합니다.
+      gorilla.yaw = gorillaTurnTowards(gorilla.yaw, gorilla.targetYaw, dt * 2.8);
+      if (gorilla.stateTime >= 1.0) {
+        gorilla.state = 'charge';
+        gorilla.stateTime = 0;
+        gorilla.chargeFromX = gorilla.x;
+        gorilla.chargeFromZ = gorilla.z;
+        gorilla.chargeDirX = Math.sin(gorilla.yaw);
+        gorilla.chargeDirZ = Math.cos(gorilla.yaw);
+      }
+      return;
+    }
+
+    if (gorilla.state === 'charge') {
+      const t = Math.min(1, gorilla.stateTime / 0.82);
+      const eased = 1 - (1 - t) * (1 - t);
+      gorilla.x = gorilla.chargeFromX + gorilla.chargeDirX * gorilla.chargeDistance * eased;
+      gorilla.z = gorilla.chargeFromZ + gorilla.chargeDirZ * gorilla.chargeDistance * eased;
+      if (t >= 1) {
+        gorillaImpactEffects.push({
+          x: gorilla.x, z: gorilla.z, age: 0, radius: 0,
+          maxRadius: 6.2, life: 0.72
+        });
+        gorilla.state = 'recover';
+        gorilla.stateTime = 0;
+      }
+      return;
+    }
+
+    if (gorilla.state === 'recover' && gorilla.stateTime >= 1.45) {
+      gorilla.state = 'patrol';
+      gorilla.stateTime = 0;
+      gorilla.orbit = Math.atan2(gorilla.z - player.z, gorilla.x - player.x);
+    }
+  }
+
+  function updateGorillaImpactEffects(dt) {
+    for (let i = gorillaImpactEffects.length - 1; i >= 0; i--) {
+      const effect = gorillaImpactEffects[i];
+      effect.age += dt;
+      effect.radius = effect.maxRadius * Math.min(1, effect.age / 0.3);
+      if (effect.age >= effect.life) gorillaImpactEffects.splice(i, 1);
+    }
+  }
+
+  const gorillaDrawQueue = [];
+  let gorillaDrawSequence = 0;
+
+  function gorillaWorldPoint(side, vertical, forward) {
+    const c = Math.cos(gorilla.yaw);
+    const s = Math.sin(gorilla.yaw);
+    return [
+      gorilla.x + side * c + forward * s,
+      gorilla.y + vertical,
+      gorilla.z - side * s + forward * c
+    ];
+  }
+
+  function projectGorillaPoint(side, vertical, forward) {
+    const world = gorillaWorldPoint(side, vertical, forward);
+    return project(world[0], world[1], world[2]);
+  }
+
+  function queueGorillaPolygon(localPoints, fillStyle, strokeStyle, lineWidth) {
+    const points = [];
+    let depth = 0;
+    for (const local of localPoints) {
+      const point = projectGorillaPoint(local[0], local[1], local[2]);
+      if (!point) return;
+      points.push(point);
+      depth += point.depth;
+    }
+    const a = localPoints[0], b = localPoints[1], c = localPoints[2];
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const normal = dragonCross3(u, v);
+    const light = Math.abs((normal[0] * -0.35 + normal[1] * 0.78 + normal[2] * 0.52) /
+      (Math.hypot(normal[0], normal[1], normal[2]) || 1));
+    gorillaDrawQueue.push({
+      type: 'polygon',
+      depth: depth / points.length,
+      order: gorillaDrawSequence++,
+      points,
+      fillStyle: shadeDragonColor(fillStyle, 0.5 + light * 0.5),
+      strokeStyle,
+      lineWidth
+    });
+  }
+
+  function drawGorillaBone(a, b, color, lineWidth = 3) {
+    const start = projectGorillaPoint(a[0], a[1], a[2]);
+    const end = projectGorillaPoint(b[0], b[1], b[2]);
+    if (!start || !end) return;
+    gorillaDrawQueue.push({
+      type: 'line',
+      depth: (start.depth + end.depth) * 0.5,
+      order: gorillaDrawSequence++,
+      start, end, color, lineWidth
+    });
+  }
+
+  function drawGorillaEllipsoid(side, vertical, forward, radiusX, radiusY, radiusZ, color, segments = 9) {
+    const fastMotion = gorilla.state === 'charge';
+    const longitudeCount = fastMotion ? 7 : segments;
+    const bands = fastMotion
+      ? [-Math.PI / 2, -0.45, 0.35, Math.PI / 2]
+      : [-Math.PI / 2, -1.0, -0.48, 0.08, 0.62, 1.08, Math.PI / 2];
+
+    const point = (latitude, longitude) => {
+      const ring = Math.cos(latitude);
+      return [
+        side + radiusX * ring * Math.sin(longitude),
+        vertical + radiusY * Math.sin(latitude),
+        forward + radiusZ * ring * Math.cos(longitude)
+      ];
+    };
+
+    for (let band = 0; band < bands.length - 1; band++) {
+      const lower = bands[band];
+      const upper = bands[band + 1];
+      for (let segment = 0; segment < longitudeCount; segment++) {
+        const a0 = segment / longitudeCount * Math.PI * 2;
+        const a1 = (segment + 1) / longitudeCount * Math.PI * 2;
+        const face = [
+          point(lower, a0), point(lower, a1),
+          point(upper, a1), point(upper, a0)
+        ];
+        const midLat = (lower + upper) * 0.5;
+        const midLon = (a0 + a1) * 0.5;
+        const nx = Math.cos(midLat) * Math.sin(midLon) / Math.max(0.001, radiusX);
+        const ny = Math.sin(midLat) / Math.max(0.001, radiusY);
+        const nz = Math.cos(midLat) * Math.cos(midLon) / Math.max(0.001, radiusZ);
+        const diffuse = Math.abs((nx * -0.35 + ny * 0.78 + nz * 0.52) /
+          (Math.hypot(nx, ny, nz) || 1));
+        queueGorillaPolygon(
+          face,
+          shadeDragonColor(gorilla.flash > 0 ? '#fff1e6' : color, 0.46 + diffuse * 0.54),
+          'rgba(18,10,8,0.42)',
+          fastMotion ? 0.45 : 0.72
+        );
+      }
+    }
+  }
+
+  function drawGorillaTubeSegment(start, end, radiusStart, radiusEnd, color, sideCount = 8) {
+    const axis = dragonNormalize3([
+      end[0] - start[0], end[1] - start[1], end[2] - start[2]
+    ]);
+    const reference = Math.abs(axis[1]) < 0.88 ? [0, 1, 0] : [1, 0, 0];
+    const u = dragonNormalize3(dragonCross3(axis, reference));
+    const v = dragonNormalize3(dragonCross3(axis, u));
+    const firstRing = [], secondRing = [];
+    for (let i = 0; i < sideCount; i++) {
+      const angle = i / sideCount * Math.PI * 2;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      firstRing.push(dragonAddScaled3(start, u, c * radiusStart, v, s * radiusStart * 0.85));
+      secondRing.push(dragonAddScaled3(end, u, c * radiusEnd, v, s * radiusEnd * 0.85));
+    }
+    for (let i = 0; i < sideCount; i++) {
+      const next = (i + 1) % sideCount;
+      queueGorillaPolygon(
+        [firstRing[i], firstRing[next], secondRing[next], secondRing[i]],
+        color, 'rgba(18,10,8,0.48)', 0.8
+      );
+    }
+  }
+
+  function flushGorillaDrawQueue() {
+    gorillaDrawQueue.sort((a, b) => b.depth - a.depth || a.order - b.order);
+    for (const command of gorillaDrawQueue) {
+      if (command.type === 'polygon') {
+        ctx.beginPath();
+        ctx.moveTo(command.points[0].x, command.points[0].y);
+        for (let i = 1; i < command.points.length; i++) {
+          ctx.lineTo(command.points[i].x, command.points[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = command.fillStyle;
+        ctx.fill();
+        ctx.strokeStyle = command.strokeStyle;
+        ctx.lineWidth = command.lineWidth;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(command.start.x, command.start.y);
+        ctx.lineTo(command.end.x, command.end.y);
+        ctx.strokeStyle = command.color;
+        ctx.lineWidth = command.lineWidth;
+        ctx.stroke();
+      }
+    }
+    gorillaDrawQueue.length = 0;
+  }
+
+  function drawGorilla() {
+    if (!bossChallengeAccepted || bossType !== 'gorilla' || !gorilla.active) return;
+    gorillaDrawQueue.length = 0;
+    gorillaDrawSequence = 0;
+
+    const moving = gorilla.state === 'patrol' || gorilla.state === 'charge';
+    const gait = moving ? Math.sin(gorilla.time * (gorilla.state === 'charge' ? 10 : 5.5)) : 0;
+    const beat = gorilla.state === 'chestbeat' ? Math.abs(Math.sin(gorilla.stateTime * 8)) : 0;
+    const crouch = gorilla.state === 'windup' ? 0.28 : (gorilla.state === 'charge' ? 0.18 : 0);
+    const lean = gorilla.state === 'charge' ? 0.38 : (gorilla.state === 'windup' ? 0.18 : 0);
+    const bodyBob = moving ? Math.abs(gait) * 0.09 : 0;
+
+    // 넓은 흉곽과 짧은 허리, 두꺼운 어깨의 고릴라 실루엣.
+    drawGorillaEllipsoid(0, 1.62 + bodyBob - crouch, -0.18, 1.18, 1.42, 0.92, '#38251e', 10);
+    drawGorillaEllipsoid(0, 2.24 + bodyBob - crouch, 0.38 + lean * 0.45, 1.28, 1.05, 0.88, '#493027', 10);
+    drawGorillaEllipsoid(0, 1.48 + bodyBob - crouch, 0.67, 0.78, 0.82, 0.34, '#79533b', 9);
+
+    // 목과 두개골, 낮은 이마, 넓은 주둥이도 입체 표면으로 구성.
+    drawGorillaEllipsoid(0, 2.92 + bodyBob - crouch, 0.52 + lean * 0.6, 0.76, 0.76, 0.72, '#302019', 10);
+    drawGorillaEllipsoid(0, 2.73 + bodyBob - crouch, 1.02 + lean * 0.6, 0.58, 0.38, 0.48, '#75513c', 9);
+    drawGorillaEllipsoid(0, 2.48 + bodyBob - crouch, 1.32 + lean * 0.6, 0.48, 0.18, 0.26, '#312019', 9);
+    drawGorillaEllipsoid(0, 3.48 + bodyBob - crouch, 1.02, 0.82, 0.27, 0.42, '#241712', 9);
+
+    for (const sign of [-1, 1]) {
+      drawGorillaEllipsoid(sign * 0.79, 2.98 + bodyBob - crouch, 0.45, 0.24, 0.32, 0.22, '#302019', 8);
+      drawGorillaEllipsoid(sign * 0.83, 2.98 + bodyBob - crouch, 0.62, 0.11, 0.17, 0.1, '#a36b4d', 7);
+      drawGorillaEllipsoid(sign * 0.34, 3.14 + bodyBob - crouch, 1.34, 0.14, 0.12, 0.1, '#120d0b', 7);
+      drawGorillaEllipsoid(sign * 0.34, 3.14 + bodyBob - crouch, 1.425, 0.065, 0.07, 0.045, '#f6c46c', 7);
+
+      const armSwing = gait * 0.34;
+      const shoulder = [sign * 1.06, 2.42 + bodyBob - crouch, 0.12 + lean * 0.7];
+      const elbow = [
+        sign * (1.48 + beat * 0.12),
+        1.55 + bodyBob - crouch + beat * 0.55 + armSwing * sign,
+        0.42 + lean * 1.15
+      ];
+      const wrist = [
+        sign * 1.55,
+        0.54 + bodyBob - crouch + beat * 0.94 + armSwing * sign,
+        0.82 + lean * 1.8
+      ];
+      drawGorillaEllipsoid(shoulder[0], shoulder[1], shoulder[2], 0.62, 0.68, 0.62, '#39251e', 8);
+      drawGorillaTubeSegment(shoulder, elbow, 0.52, 0.46, '#473027', 8);
+      drawGorillaEllipsoid(elbow[0], elbow[1], elbow[2], 0.49, 0.48, 0.5, '#50372a', 8);
+      drawGorillaTubeSegment(elbow, wrist, 0.46, 0.39, '#39251e', 8);
+      drawGorillaEllipsoid(wrist[0], wrist[1], wrist[2], 0.48, 0.43, 0.48, '#211610', 8);
+
+      for (let finger = -1; finger <= 1; finger++) {
+        const fx = wrist[0] + finger * 0.2;
+        drawGorillaTubeSegment(
+          [fx, wrist[1] - 0.18, wrist[2] + 0.18],
+          [fx + sign * 0.035, wrist[1] - 0.44, wrist[2] + 0.33],
+          0.1, 0.07, '#1c120e', 6
+        );
+      }
+
+      const legSwing = gait * 0.2 * sign;
+      const hip = [sign * 0.61, 1.02 + bodyBob - crouch, -0.25];
+      const knee = [sign * 0.72, 0.55 + legSwing, 0.03];
+      const ankle = [sign * 0.73, 0.22, 0.25 - legSwing];
+      drawGorillaEllipsoid(hip[0], hip[1], hip[2], 0.61, 0.68, 0.65, '#302019', 8);
+      drawGorillaTubeSegment(hip, knee, 0.47, 0.38, '#473027', 8);
+      drawGorillaEllipsoid(knee[0], knee[1], knee[2], 0.4, 0.4, 0.43, '#34231c', 8);
+      drawGorillaTubeSegment(knee, ankle, 0.34, 0.29, '#2a1b15', 8);
+      drawGorillaEllipsoid(ankle[0], 0.15, ankle[2] + 0.28, 0.42, 0.2, 0.66, '#1d130f', 8);
+      for (let toe = -1; toe <= 1; toe++) {
+        drawGorillaEllipsoid(
+          ankle[0] + toe * 0.2, 0.11, ankle[2] + 0.78,
+          0.12, 0.11, 0.22, '#140e0b', 6
+        );
+      }
+    }
+
+    drawGorillaEllipsoid(0, 2.0 + bodyBob - crouch, 1.13, 0.66, 0.65, 0.19, '#8a6348', 9);
+    for (let i = 0; i < 5; i++) {
+      const x = (i - 2) * 0.24;
+      drawGorillaEllipsoid(x, 2.12 + bodyBob - crouch, 1.31, 0.12, 0.2, 0.08,
+        i % 2 ? '#a47a57' : '#74513b', 6);
+    }
+    drawGorillaBone([-0.58, 2.66 + bodyBob - crouch, 1.33], [-0.18, 2.59 + bodyBob - crouch, 1.48], '#1a100c', 4);
+    drawGorillaBone([0.18, 2.59 + bodyBob - crouch, 1.48], [0.58, 2.66 + bodyBob - crouch, 1.33], '#1a100c', 4);
+
+    flushGorillaDrawQueue();
+  }
+
+  function drawGorillaHealthBar() {
+    if (!bossChallengeAccepted || bossType !== 'gorilla' || !gorilla.active) return;
+    const point = project(gorilla.x, gorilla.y + 4.3, gorilla.z);
+    if (!point) return;
+    const barWidth = Math.max(130, Math.min(300, point.scale * 3.5));
+    const x = point.x - barWidth / 2;
+    const y = Math.max(18, point.y - 28);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(x, y, barWidth, 11);
+    const gradient = ctx.createLinearGradient(x, y, x + barWidth, y);
+    gradient.addColorStop(0, '#65a30d');
+    gradient.addColorStop(1, '#d9f99d');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, barWidth * (gorilla.health / gorilla.maxHealth), 11);
+    ctx.strokeStyle = 'rgba(236,252,203,0.9)';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(x, y, barWidth, 11);
+    ctx.fillStyle = '#f7fee7';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('거대 고릴라', point.x, y - 7);
+    ctx.restore();
+  }
+
+  function drawGorillaImpactEffects() {
+    if (gorillaImpactEffects.length === 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const effect of gorillaImpactEffects) {
+      const fade = Math.max(0, 1 - effect.age / effect.life);
+      drawGroundRing(
+        effect.x, effect.z, 0.07, effect.radius, 40,
+        'rgba(163,230,53,' + (0.7 * fade) + ')',
+        3.0 * fade + 0.3
+      );
+    }
+    ctx.restore();
   }
 
   function update(dt) {
@@ -3245,41 +3784,51 @@
       }
     }
 
-    if (bossChallengeAccepted) updateDragon(dt);
-    else updateEnemy(dt);
-    updateDragonFireballs(dt);
+    if (bossChallengeAccepted) {
+      if (bossType === 'gorilla') {
+        updateGorilla(dt);
+        updateGorillaImpactEffects(dt);
+      } else {
+        updateDragon(dt);
+        updateDragonFireballs(dt);
+        updateDragonSlamEffects(dt);
+      }
+    } else {
+      updateEnemy(dt);
+    }
     updateProjectiles(dt);
     updateSlashWaves(dt);
     updateShockwaves(dt);
-    updateDragonSlamEffects(dt);
     positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
   }
 
   let previousTime = performance.now();
+
   function render(now) {
     const dt = Math.min((now - previousTime) / 1000, 0.04);
     previousTime = now;
-
     if (gameState === 'playing') update(dt);
 
     drawBackground();
     drawFloor();
     drawShockwaves();
-    drawDragonSlamTelegraph();
-    drawDragonSlamEffects();
 
-    // 보스 전장에서는 일반 큐브를 생성하거나 표시하지 않습니다.
-    if (bossChallengeAccepted) {
+    if (bossChallengeAccepted && bossType === 'dragon') {
+      drawDragonSlamTelegraph();
+      drawDragonSlamEffects();
       drawDragon();
       drawDragonHealthBar();
+    } else if (bossChallengeAccepted && bossType === 'gorilla') {
+      drawGorillaImpactEffects();
+      drawGorilla();
+      drawGorillaHealthBar();
     } else if (enemy.active) {
       drawCube(enemy);
       drawEnemyHealthBar();
     }
 
-    // 플레이어 투사체와 드래곤 화염구, 충전 구체, 참격 효과
     for (const projectile of projectiles) drawProjectile(projectile);
-    drawDragonFireballs();
+    if (bossType === 'dragon') drawDragonFireballs();
     drawSlashWaves();
     drawChargeOrbs();
     drawSlashEffect();
