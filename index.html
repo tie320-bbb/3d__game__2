@@ -1015,6 +1015,9 @@
       updateDragonFacing();
 
       if (t >= 1) {
+        // 회전이 시작되는 순간 플레이어 위치를 고정해 이후 공격은 이 지점만 노립니다.
+        dragon.slamTargetX = player.x;
+        dragon.slamTargetZ = player.z;
         dragon.slamPhase = 'spin';
         dragon.slamPhaseTime = 0;
         dragon.slamFromX = dragon.x;
@@ -1027,10 +1030,9 @@
     if (dragon.slamPhase === 'spin') {
       const t = Math.min(1, dragon.slamPhaseTime / 1.15);
       const eased = t * t * (3 - 2 * t);
-      dragon.slamTargetX = player.x;
-      dragon.slamTargetZ = player.z;
-      dragon.x = dragon.slamFromX + (player.x - dragon.slamFromX) * 0.12 * eased;
-      dragon.z = dragon.slamFromZ + (player.z - dragon.slamFromZ) * 0.12 * eased;
+      // 회전 중에는 저장한 목표 좌표를 유지하며 플레이어를 추적하지 않습니다.
+      dragon.x = dragon.slamFromX + (dragon.slamTargetX - dragon.slamFromX) * 0.12 * eased;
+      dragon.z = dragon.slamFromZ + (dragon.slamTargetZ - dragon.slamFromZ) * 0.12 * eased;
       dragon.y = 13.9 + Math.sin(t * Math.PI) * 0.55;
       dragon.roll = Math.PI * 2 * t;
       dragon.pitch = 0.08 + Math.sin(t * Math.PI) * 0.16;
@@ -1043,8 +1045,7 @@
         dragon.slamFromX = dragon.x;
         dragon.slamFromY = dragon.y;
         dragon.slamFromZ = dragon.z;
-        dragon.slamTargetX = player.x;
-        dragon.slamTargetZ = player.z;
+        // 회전 시작 때 고정한 목표 좌표를 급강하와 착지까지 그대로 사용합니다.
       }
       return;
     }
