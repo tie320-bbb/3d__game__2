@@ -328,10 +328,23 @@
     fireTimer: 1.4,
     health: 2400,
     maxHealth: 2400,
-    flash: 0
+    flash: 0,
+    roll: 0,
+    pitch: 0,
+    slamTimer: 9.0,
+    slamPhase: 'idle',
+    slamPhaseTime: 0,
+    slamFromX: 0,
+    slamFromY: 7.5,
+    slamFromZ: 0,
+    slamClimbX: 0,
+    slamClimbZ: 0,
+    slamTargetX: 0,
+    slamTargetZ: 0
   };
   const dragonFireballs = [];
   const dragonFireImpacts = [];
+  const dragonSlamEffects = [];
   const arenaStatusLabel = document.getElementById('game-arena-status');
   let hits = 0;
   let level = 1;
@@ -818,16 +831,27 @@
   function dragonWorldPoint(side, vertical, forward) {
     const rightX = -dragon.forwardZ;
     const rightZ = dragon.forwardX;
+
+    // 몸통 전체를 축 방향으로 회전(배럴 롤)시키고, 돌진 중에는 고개를 아래로 숙입니다.
+    const rollCos = Math.cos(dragon.roll || 0);
+    const rollSin = Math.sin(dragon.roll || 0);
+    const rolledSide = side * rollCos - vertical * rollSin;
+    const rolledVertical = side * rollSin + vertical * rollCos;
+    const pitchCos = Math.cos(dragon.pitch || 0);
+    const pitchSin = Math.sin(dragon.pitch || 0);
+    const pitchedVertical = rolledVertical * pitchCos - forward * pitchSin;
+    const pitchedForward = rolledVertical * pitchSin + forward * pitchCos;
+
     return [
-      dragon.x + rightX * side + dragon.forwardX * forward,
-      dragon.y + vertical,
-      dragon.z + rightZ * side + dragon.forwardZ * forward
+      dragon.x + rightX * rolledSide + dragon.forwardX * pitchedForward,
+      dragon.y + pitchedVertical,
+      dragon.z + rightZ * rolledSide + dragon.forwardZ * pitchedForward
     ];
   }
 
-  function updateDragonFacing() {
-    const dx = player.x - dragon.x;
-    const dz = player.z - dragon.z;
+  function updateDragonFacing(targetX = player.x, targetZ = player.z) {
+    const dx = targetX - dragon.x;
+    const dz = targetZ - dragon.z;
     const distance = Math.hypot(dx, dz) || 1;
     dragon.forwardX = dx / distance;
     dragon.forwardZ = dz / distance;
@@ -843,6 +867,12 @@
     dragon.orbit = -Math.PI / 2;
     dragon.fireTimer = 1.4;
     dragon.flash = 0;
+    dragon.roll = 0;
+    dragon.pitch = 0;
+    dragon.slamTimer = 9.0;
+    dragon.slamPhase = 'idle';
+    dragon.slamPhaseTime = 0;
+    dragonSlamEffects.length = 0;
     dragonFireballs.length = 0;
     dragonFireImpacts.length = 0;
     dragon.x = player.x;
@@ -910,20 +940,162 @@
     }
   }
 
+  function beginDragonSlam() {
+    dragon.slamPhase = 'climb';
+    dragon.slamPhaseTime = 0;
+    dragon.slamFromX = dragon.x;
+    dragon.slamFromY = dragon.y;
+    dragon.slamFromZ = dragon.z;
+
+    // 먼저 현재 선회 궤도에서 플레이어 쪽으로 거리를 좁히며 상승합니다.
+    const awayX = dragon.x - player.x;
+    const awayZ = dragon.z - player.z;
+    const awayLength = Math.hypot(awayX, awayZ) || 1;
+    dragon.slamClimbX = player.x + awayX / awayLength * 9;
+    dragon.slamClimbZ = player.z + awayZ / awayLength * 9;
+    dragon.slamTargetX = player.x;
+    dragon.slamTargetZ = player.z;
+    dragon.fireTimer = Math.max(dragon.fireTimer, 1.0);
+  }
+
+  function updateDragonSlam(dt) {
+    dragon.slamPhaseTime += dt;
+
+    if (dragon.slamPhase === 'climb') {
+      const t = Math.min(1, dragon.slamPhaseTime / 1.2);
+      const eased = t * t * (3 - 2 * t);
+      dragon.x = dragon.slamFromX + (dragon.slamClimbX - dragon.slamFromX) * eased;
+      dragon.z = dragon.slamFromZ + (dragon.slamClimbZ - dragon.slamFromZ) * eased;
+      dragon.y = dragon.slamFromY + 6.4 * eased;
+      dragon.roll = Math.sin(t * Math.PI) * 0.16;
+      dragon.pitch = -0.12 * Math.sin(t * Math.PI);
+      updateDragonFacing();
+
+      if (t >= 1) {
+        dragon.slamPhase = 'spin';
+        dragon.slamPhaseTime = 0;
+        dragon.slamFromX = dragon.x;
+        dragon.slamFromY = dragon.y;
+        dragon.slamFromZ = dragon.z;
+      }
+      return;
+    }
+
+    if (dragon.slamPhase === 'spin') {
+      const t = Math.min(1, dragon.slamPhaseTime / 1.15);
+      const eased = t * t * (3 - 2 * t);
+      dragon.slamTargetX = player.x;
+      dragon.slamTargetZ = player.z;
+      dragon.x = dragon.slamFromX + (player.x - dragon.slamFromX) * 0.12 * eased;
+      dragon.z = dragon.slamFromZ + (player.z - dragon.slamFromZ) * 0.12 * eased;
+      dragon.y = 13.9 + Math.sin(t * Math.PI) * 0.55;
+      dragon.roll = Math.PI * 2 * t;
+      dragon.pitch = 0.08 + Math.sin(t * Math.PI) * 0.16;
+      updateDragonFacing();
+
+      if (t >= 1) {
+        // 회전이 끝나는 순간 플레이어의 위치를 목표 지점으로 고정합니다.
+        dragon.slamPhase = 'dive';
+        dragon.slamPhaseTime = 0;
+        dragon.slamFromX = dragon.x;
+        dragon.slamFromY = dragon.y;
+        dragon.slamFromZ = dragon.z;
+        dragon.slamTargetX = player.x;
+        dragon.slamTargetZ = player.z;
+      }
+      return;
+    }
+
+    if (dragon.slamPhase === 'dive') {
+      const t = Math.min(1, dragon.slamPhaseTime / 0.82);
+      const eased = t * t;
+      dragon.x = dragon.slamFromX + (dragon.slamTargetX - dragon.slamFromX) * eased;
+      dragon.z = dragon.slamFromZ + (dragon.slamTargetZ - dragon.slamFromZ) * eased;
+      dragon.y = dragon.slamFromY + (2.15 - dragon.slamFromY) * eased;
+      dragon.roll = Math.PI * 2 + Math.PI * 2 * t;
+      dragon.pitch = 0.08 + 0.92 * eased;
+      updateDragonFacing(dragon.slamTargetX, dragon.slamTargetZ);
+
+      if (t >= 1) {
+        dragon.x = dragon.slamTargetX;
+        dragon.z = dragon.slamTargetZ;
+        dragon.y = 2.15;
+        dragon.roll = Math.PI * 4;
+        dragon.pitch = 1.0;
+        dragonSlamEffects.push({
+          x: dragon.slamTargetX,
+          z: dragon.slamTargetZ,
+          age: 0,
+          radius: 0,
+          maxRadius: 8.5,
+          life: 0.9
+        });
+        dragon.slamPhase = 'recover';
+        dragon.slamPhaseTime = 0;
+        dragon.slamFromX = dragon.x;
+        dragon.slamFromY = dragon.y;
+        dragon.slamFromZ = dragon.z;
+      }
+      return;
+    }
+
+    if (dragon.slamPhase === 'recover') {
+      const t = Math.min(1, dragon.slamPhaseTime / 1.05);
+      const eased = t * t * (3 - 2 * t);
+      const orbitX = player.x + Math.cos(dragon.orbit) * 17;
+      const orbitZ = player.z + Math.sin(dragon.orbit) * 17;
+      dragon.x = dragon.slamFromX + (orbitX - dragon.slamFromX) * eased;
+      dragon.z = dragon.slamFromZ + (orbitZ - dragon.slamFromZ) * eased;
+      dragon.y = dragon.slamFromY + (7.4 - dragon.slamFromY) * eased;
+      dragon.roll = Math.PI * 4 * (1 - eased);
+      dragon.pitch = 1.0 * (1 - eased);
+      updateDragonFacing();
+
+      if (t >= 1) {
+        dragon.slamPhase = 'idle';
+        dragon.slamPhaseTime = 0;
+        dragon.roll = 0;
+        dragon.pitch = 0;
+        dragon.slamTimer = 8.5;
+        dragon.fireTimer = 1.5;
+      }
+    }
+  }
+
   function updateDragon(dt) {
     if (!bossChallengeAccepted || !dragon.active) return;
     dragon.time += dt;
+    dragon.flash = Math.max(0, dragon.flash - dt);
+
+    if (dragon.slamPhase !== 'idle') {
+      updateDragonSlam(dt);
+      return;
+    }
+
     dragon.orbit += dt * 0.19;
     dragon.x = player.x + Math.cos(dragon.orbit) * 17;
     dragon.z = player.z + Math.sin(dragon.orbit) * 17;
     dragon.y = 7.4 + Math.sin(dragon.time * 1.35) * 0.85;
-    dragon.flash = Math.max(0, dragon.flash - dt);
+    dragon.roll = 0;
+    dragon.pitch = 0;
     updateDragonFacing();
 
     dragon.fireTimer -= dt;
     if (dragon.fireTimer <= 0) {
       spawnDragonVolley();
       dragon.fireTimer = 4.4;
+    }
+
+    dragon.slamTimer -= dt;
+    if (dragon.slamTimer <= 0) beginDragonSlam();
+  }
+
+  function updateDragonSlamEffects(dt) {
+    for (let i = dragonSlamEffects.length - 1; i >= 0; i--) {
+      const effect = dragonSlamEffects[i];
+      effect.age += dt;
+      effect.radius = effect.maxRadius * Math.min(1, effect.age / 0.34);
+      if (effect.age >= effect.life) dragonSlamEffects.splice(i, 1);
     }
   }
 
@@ -1757,7 +1929,10 @@
     if (!bossChallengeAccepted || !dragon.active) return;
 
     const flap = Math.sin(dragon.time * 5.1);
-    const wingLift = flap * 1.7;
+    const attackWingPose = dragon.slamPhase === 'climb' ? 0.9
+      : (dragon.slamPhase === 'spin' ? 1.45
+        : (dragon.slamPhase === 'dive' ? 2.0 : 0));
+    const wingLift = flap * 1.7 + attackWingPose;
     const tailSway = Math.sin(dragon.time * 1.8) * 0.55;
     const emberPulse = 0.5 + (Math.sin(dragon.time * 7.5) + 1) * 0.25;
     const armorDark = dragon.flash > 0 ? '#fff1e6' : '#350912';
@@ -2349,6 +2524,80 @@
     ctx.restore();
   }
 
+  function drawDragonSlamTelegraph() {
+    if (!bossChallengeAccepted ||
+        (dragon.slamPhase !== 'spin' && dragon.slamPhase !== 'dive')) return;
+
+    const pulse = 0.72 + Math.sin(dragon.time * 13) * 0.18;
+    const points = 56;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = '#fb4b16';
+    ctx.shadowBlur = 18;
+    ctx.lineCap = 'round';
+
+    // 급강하 직전과 비행 중 목표 지점을 바닥의 불빛 고리로 알려줍니다.
+    for (let ring = 0; ring < 2; ring++) {
+      const radius = ring === 0 ? 2.05 : 1.42;
+      const alpha = (ring === 0 ? 0.9 : 0.48) * pulse;
+      const color = ring === 0
+        ? `rgba(255,92,24,${alpha})`
+        : `rgba(255,210,116,${alpha})`;
+      for (let i = 0; i < points; i++) {
+        const a1 = (i / points) * Math.PI * 2;
+        const a2 = ((i + 1) / points) * Math.PI * 2;
+        drawLine3D(
+          [dragon.slamTargetX + Math.cos(a1) * radius, 0.055, dragon.slamTargetZ + Math.sin(a1) * radius],
+          [dragon.slamTargetX + Math.cos(a2) * radius, 0.055, dragon.slamTargetZ + Math.sin(a2) * radius],
+          color,
+          ring === 0 ? 3.2 : 1.8
+        );
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawDragonSlamEffects() {
+    if (dragonSlamEffects.length === 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    for (const effect of dragonSlamEffects) {
+      const fade = Math.max(0, 1 - effect.age / effect.life);
+      for (const [radius, alpha, color, lineWidth] of [
+        [effect.radius, 0.9, 'rgba(255,104,20,', 3.6],
+        [effect.radius * 0.68, 0.78, 'rgba(255,224,138,', 2.0]
+      ]) {
+        const points = 56;
+        for (let i = 0; i < points; i++) {
+          const a1 = (i / points) * Math.PI * 2;
+          const a2 = ((i + 1) / points) * Math.PI * 2;
+          drawLine3D(
+            [effect.x + Math.cos(a1) * radius, 0.06, effect.z + Math.sin(a1) * radius],
+            [effect.x + Math.cos(a2) * radius, 0.06, effect.z + Math.sin(a2) * radius],
+            `${color}${alpha * fade})`,
+            lineWidth * fade + 0.3
+          );
+        }
+      }
+
+      // 충격파 가장자리에 짧은 불꽃 선을 흩뿌립니다.
+      for (let ray = 0; ray < 12; ray++) {
+        const angle = (ray / 12) * Math.PI * 2 + effect.age * 0.7;
+        const inner = effect.radius * 0.78;
+        const outer = effect.radius * (0.92 + 0.08 * Math.sin(effect.age * 18 + ray));
+        drawLine3D(
+          [effect.x + Math.cos(angle) * inner, 0.08, effect.z + Math.sin(angle) * inner],
+          [effect.x + Math.cos(angle) * outer, 0.08, effect.z + Math.sin(angle) * outer],
+          `rgba(255,170,65,${fade * 0.72})`,
+          2.2 * fade + 0.2
+        );
+      }
+    }
+    ctx.restore();
+  }
+
   function drawSlashEffect() {
     if (slashEffect <= 0) return;
 
@@ -2496,6 +2745,7 @@
     updateProjectiles(dt);
     updateSlashWaves(dt);
     updateShockwaves(dt);
+    updateDragonSlamEffects(dt);
     positionLabel.textContent = `위치: ${player.x.toFixed(1)}, ${player.z.toFixed(1)}`;
   }
 
@@ -2509,6 +2759,8 @@
     drawBackground();
     drawFloor();
     drawShockwaves();
+    drawDragonSlamTelegraph();
+    drawDragonSlamEffects();
 
     // 보스 전장에서는 일반 큐브를 생성하거나 표시하지 않습니다.
     if (bossChallengeAccepted) {
