@@ -3343,16 +3343,17 @@
     dragon.active = false;
     gorillaImpactEffects.length = 0;
     gorilla.active = true;
-    gorilla.x = player.x + 12;
+    // 처음에는 플레이어 정면에 등장하되, 옆을 바라보도록 해 정면 응시를 피합니다.
+    gorilla.x = player.x;
     gorilla.y = 0;
-    gorilla.z = player.z - 1;
+    gorilla.z = player.z - 11.5;
     gorilla.yaw = Math.PI * 0.5;
     gorilla.time = 0;
     gorilla.health = gorilla.maxHealth;
     gorilla.flash = 0;
     gorilla.state = 'patrol';
     gorilla.stateTime = 0;
-    gorilla.orbit = 0;
+    gorilla.orbit = -Math.PI / 2;
     gorilla.idleYaw = gorilla.yaw + 1.35;
     gorilla.targetYaw = gorilla.yaw;
     gorilla.chargeFromX = gorilla.x;
