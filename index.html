@@ -1736,7 +1736,8 @@
 
     if (arenaTheme === 'lava') {
       const cellSize = 4.2;
-      const cells = 7;
+      // 보스 전장에서는 시야 안쪽의 용암 무늬만 유지해 프레임당 투영량을 줄입니다.
+      const cells = 5;
       const startX = Math.floor(player.x / cellSize);
       const startZ = Math.floor(player.z / cellSize);
       const time = performance.now() * 0.001;
@@ -1751,7 +1752,7 @@
           const baseZ = gz * cellSize + floorNoise(gx, gz, 2) * cellSize;
           const dx = baseX - player.x;
           const dz = baseZ - player.z;
-          if (dx * dx + dz * dz > 27 * 27) continue;
+          if (dx * dx + dz * dz > 23 * 23) continue;
 
           const bend = (floorNoise(gx, gz, 4) - 0.5) * 1.2;
           const p0 = project(baseX - 1.25, 0.035, baseZ - 0.9);
@@ -1767,8 +1768,8 @@
             const poolRadius = 0.28 + floorNoise(gx, gz, 6) * 0.34;
             let first = null;
             let previous = null;
-            for (let seg = 0; seg < 8; seg++) {
-              const angle = (seg / 8) * Math.PI * 2;
+            for (let seg = 0; seg < 6; seg++) {
+              const angle = (seg / 6) * Math.PI * 2;
               const point = project(
                 baseX + Math.cos(angle) * poolRadius,
                 0.045,
@@ -2024,6 +2025,8 @@
   function drawDragon() {
     if (!bossChallengeAccepted || !dragon.active) return;
 
+    // 회전·급강하 중에는 드래곤의 실루엣은 유지하고 잔디테일 렌더링만 줄입니다.
+    const fastMotion = dragon.slamPhase === 'spin' || dragon.slamPhase === 'dive';
     const flap = Math.sin(dragon.time * 5.1);
     const attackWingPose = dragon.slamPhase === 'climb' ? 0.9
       : (dragon.slamPhase === 'spin' ? 1.45
@@ -2051,34 +2054,35 @@
         [sign * 1.45, -0.38, -1.85]
       ];
       drawDragonPolygon(wing, 'rgba(43,7,19,0.98)', 'rgba(245,105,110,0.95)', 2.8);
-
-      drawDragonPolygon([
-        wing[0], wing[1], wing[2], wing[3], wing[4], wing[6], wing[8]
-      ], 'rgba(126,18,42,0.76)', 'rgba(251,146,60,0.25)', 1.1);
-      drawDragonPolygon([
-        wing[1], wing[2], wing[4], wing[6]
-      ], 'rgba(190,24,54,0.48)', 'rgba(251,113,133,0.5)', 1.1);
-      drawDragonPolygon([
-        wing[1], wing[4], wing[5], wing[6]
-      ], 'rgba(74,9,29,0.75)', 'rgba(248,113,113,0.35)', 1);
-
+      // 공격 중에는 큰 날개 외곽과 핵심 뼈대만 그려 모션의 실루엣을 보존합니다.
       drawDragonBone(wing[0], wing[1], '#fca5a5', 5.5);
       drawDragonBone(wing[1], wing[2], '#fb7185', 4.6);
       drawDragonBone(wing[1], wing[3], '#e87979', 3.2);
-      drawDragonBone(wing[1], wing[4], '#fda4af', 3.0);
-      drawDragonBone(wing[1], wing[5], '#be5260', 2.8);
-      drawDragonBone(wing[1], wing[6], '#fda4af', 2.5);
-      drawDragonBone(wing[1], wing[7], '#be5260', 2.1);
-      drawDragonBone(wing[0], wing[8], '#9f3949', 2.8);
 
-      // 날개 끝의 갈고리와 막의 가는 혈관 무늬
-      drawDragonBone(wing[2], [sign * 8.75, 1.42 + wingLift, -2.25], '#fbbf24', 2.5);
-      drawDragonBone(wing[3], [sign * 7.9, -1.22 + wingLift * 0.45, -4.1], '#fda4af', 2.2);
-      drawDragonBone(wing[5], [sign * 5.55, -1.48, -4.35], '#fda4af', 2);
-      drawDragonBone([sign * 3.0, 1.2 + wingLift * 0.4, -0.7],
-                     [sign * 5.8, 0.05 + wingLift * 0.6, -2.2], 'rgba(251,146,60,0.8)', 1.35);
-      drawDragonBone([sign * 3.0, 1.2 + wingLift * 0.4, -0.7],
-                     [sign * 4.5, -0.55, -3.25], 'rgba(251,146,60,0.65)', 1.2);
+      if (!fastMotion) {
+        drawDragonPolygon([
+          wing[0], wing[1], wing[2], wing[3], wing[4], wing[6], wing[8]
+        ], 'rgba(126,18,42,0.76)', 'rgba(251,146,60,0.25)', 1.1);
+        drawDragonPolygon([
+          wing[1], wing[2], wing[4], wing[6]
+        ], 'rgba(190,24,54,0.48)', 'rgba(251,113,133,0.5)', 1.1);
+        drawDragonPolygon([
+          wing[1], wing[4], wing[5], wing[6]
+        ], 'rgba(74,9,29,0.75)', 'rgba(248,113,113,0.35)', 1);
+        drawDragonBone(wing[1], wing[4], '#fda4af', 3.0);
+        drawDragonBone(wing[1], wing[5], '#be5260', 2.8);
+        drawDragonBone(wing[1], wing[6], '#fda4af', 2.5);
+        drawDragonBone(wing[1], wing[7], '#be5260', 2.1);
+        drawDragonBone(wing[0], wing[8], '#9f3949', 2.8);
+        // 날개 끝 갈고리와 막의 가는 혈관 무늬
+        drawDragonBone(wing[2], [sign * 8.75, 1.42 + wingLift, -2.25], '#fbbf24', 2.5);
+        drawDragonBone(wing[3], [sign * 7.9, -1.22 + wingLift * 0.45, -4.1], '#fda4af', 2.2);
+        drawDragonBone(wing[5], [sign * 5.55, -1.48, -4.35], '#fda4af', 2);
+        drawDragonBone([sign * 3.0, 1.2 + wingLift * 0.4, -0.7],
+                       [sign * 5.8, 0.05 + wingLift * 0.6, -2.2], 'rgba(251,146,60,0.8)', 1.35);
+        drawDragonBone([sign * 3.0, 1.2 + wingLift * 0.4, -0.7],
+                       [sign * 4.5, -0.55, -3.25], 'rgba(251,146,60,0.65)', 1.2);
+      }
     }
 
     // 긴 꼬리: 좌우로 흔들리고 끝에는 불꽃 모양의 칼날이 달립니다.
@@ -2092,6 +2096,7 @@
     drawDragonBone(tailC, tailD, '#a51d2e', 6.5);
     drawDragonBone(tailD, tailTip, '#e05b26', 3.5);
     for (let i = 0; i < 7; i++) {
+      if (fastMotion && i % 2 === 1) continue;
       const t = i / 7;
       const forward = -2.25 - t * 4.9;
       const sway = tailSway * (0.25 + t);
@@ -2117,6 +2122,7 @@
       drawDragonBall(sign * 1.55, -1.78, -1.45, 0.27, 0.32, 0.34, '#c24132');
       drawDragonBone([sign * 1.55, -1.85, -1.45], [sign * 1.72, -2.05, -0.95], '#f59e0b', 3.2);
       for (let claw = -1; claw <= 1; claw++) {
+        if (fastMotion && claw !== 0) continue;
         drawDragonBone(
           [sign * 1.7 + claw * 0.12, -2.02, -0.98],
           [sign * 1.72 + claw * 0.17, -2.13, -0.62 + claw * 0.12],
@@ -2128,6 +2134,7 @@
       drawDragonBone([sign * 0.92, -0.88, 1.05], [sign * 1.12, -1.55, 1.52], '#a32032', 6.5);
       drawDragonBone([sign * 1.12, -1.55, 1.52], [sign * 1.4, -1.73, 1.82], '#ef8b37', 3.2);
       for (let claw = -1; claw <= 1; claw++) {
+        if (fastMotion && claw !== 0) continue;
         drawDragonBone(
           [sign * 1.34, -1.68, 1.8 + claw * 0.1],
           [sign * 1.48, -1.85, 2.02 + claw * 0.12],
@@ -2152,6 +2159,7 @@
 
     // 가슴 아래의 층진 금빛 배 갑주
     for (let i = 0; i < 6; i++) {
+      if (fastMotion && i % 2 === 1) continue;
       const forward = 1.1 - i * 0.48;
       const widthScale = 0.72 + Math.sin((i / 5) * Math.PI) * 0.22;
       const y = -0.88 - Math.sin((i / 5) * Math.PI) * 0.15;
@@ -2169,6 +2177,7 @@
 
     // 등과 목에 솟은 검붉은 칼날형 가시
     for (let i = 0; i < 10; i++) {
+      if (fastMotion && i % 2 === 1) continue;
       const forward = 1.1 - i * 0.66;
       const height = 0.92 + Math.sin((i / 9) * Math.PI) * 0.42;
       const baseY = 0.92 + Math.sin((i / 9) * Math.PI) * 0.08;
@@ -2187,6 +2196,7 @@
     drawDragonBall(0, 0.56, 2.82, 0.82, 0.78, 1.05, '#a51d2e');
     drawDragonBall(0, 0.64, 3.52, 0.98, 0.8, 0.88, '#54101f');
     for (let i = 0; i < 4; i++) {
+      if (fastMotion && i % 2 === 1) continue;
       const forward = 1.85 + i * 0.43;
       drawDragonPolygon([
         [-0.78, 0.42, forward], [-0.55, 0.95, forward + 0.1],
@@ -2215,6 +2225,7 @@
     drawDragonBone([0.77, 0.2, 4.45], [0.58, -0.17, 5.17], '#f2a04c', 3.0);
     for (const sign of [-1, 1]) {
       for (let tooth = 0; tooth < 4; tooth++) {
+        if (fastMotion && tooth % 2 === 1) continue;
         const forward = 4.65 + tooth * 0.19;
         const side = sign * (0.42 - tooth * 0.035);
         drawDragonPolygon([
@@ -2236,7 +2247,7 @@
       if (eye) {
         ctx.save();
         ctx.shadowColor = '#f97316';
-        ctx.shadowBlur = 19;
+        ctx.shadowBlur = fastMotion ? 0 : 19;
         ctx.fillStyle = '#21040b';
         ctx.beginPath();
         ctx.ellipse(eye.x, eye.y, Math.max(4, eye.scale * 0.24), Math.max(3, eye.scale * 0.14), sign * -0.12, 0, Math.PI * 2);
@@ -2260,7 +2271,7 @@
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.shadowColor = '#fb4b12';
-        ctx.shadowBlur = 9;
+        ctx.shadowBlur = fastMotion ? 0 : 9;
         ctx.fillStyle = '#ffb347';
         ctx.beginPath();
         ctx.ellipse(nostril.x, nostril.y, Math.max(1.5, nostril.scale * 0.07), Math.max(1, nostril.scale * 0.035), 0, 0, Math.PI * 2);
@@ -2288,7 +2299,7 @@
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.shadowColor = '#ff3b08';
-      ctx.shadowBlur = radius * 2.8;
+      ctx.shadowBlur = fastMotion ? radius * 0.7 : radius * 2.8;
       const flame = ctx.createRadialGradient(breath.x, breath.y, 0, breath.x, breath.y, radius * 2);
       flame.addColorStop(0, '#fff7c2');
       flame.addColorStop(0.32, '#ffb02e');
@@ -2301,7 +2312,7 @@
     }
 
     // 측면의 겹비늘: 목에서 어깨와 옆구리로 이어지는 갑옷 질감
-    for (const sign of [-1, 1]) {
+    if (!fastMotion) for (const sign of [-1, 1]) {
       for (let row = 0; row < 3; row++) {
         for (let col = 0; col < 6; col++) {
           const forward = 1.95 - col * 0.7;
@@ -2655,14 +2666,14 @@
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.shadowColor = '#fb4b16';
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 8;
     ctx.lineCap = 'round';
     drawGroundRing(
-      dragon.slamTargetX, dragon.slamTargetZ, 0.055, 2.05, 48,
+      dragon.slamTargetX, dragon.slamTargetZ, 0.055, 2.05, 36,
       'rgba(255,92,24,' + (0.9 * pulse) + ')', 3.2
     );
     drawGroundRing(
-      dragon.slamTargetX, dragon.slamTargetZ, 0.055, 1.42, 48,
+      dragon.slamTargetX, dragon.slamTargetZ, 0.055, 1.42, 36,
       'rgba(255,210,116,' + (0.48 * pulse) + ')', 1.8
     );
     ctx.restore();
@@ -2678,12 +2689,12 @@
     for (const effect of dragonSlamEffects) {
       const fade = Math.max(0, 1 - effect.age / effect.life);
       drawGroundRing(
-        effect.x, effect.z, 0.06, effect.radius, 48,
+        effect.x, effect.z, 0.06, effect.radius, 36,
         'rgba(255,104,20,' + (0.9 * fade) + ')',
         3.6 * fade + 0.3
       );
       drawGroundRing(
-        effect.x, effect.z, 0.06, effect.radius * 0.68, 48,
+        effect.x, effect.z, 0.06, effect.radius * 0.68, 36,
         'rgba(255,224,138,' + (0.78 * fade) + ')',
         2.0 * fade + 0.3
       );
