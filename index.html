@@ -341,7 +341,17 @@
     slamClimbX: 0,
     slamClimbZ: 0,
     slamTargetX: 0,
-    slamTargetZ: 0
+    slamTargetZ: 0,
+    groundPhase: 'airborne',
+    groundPhaseTime: 0,
+    groundTimer: 28,
+    groundFromX: 0,
+    groundFromY: 7.5,
+    groundFromZ: 0,
+    groundTargetX: 0,
+    groundTargetZ: 0,
+    groundTakeoffX: 0,
+    groundTakeoffZ: 0
   };
   const dragonFireballs = [];
   const dragonFireImpacts = [];
@@ -915,6 +925,16 @@
     dragon.slamTimer = 9.0;
     dragon.slamPhase = 'idle';
     dragon.slamPhaseTime = 0;
+    dragon.groundPhase = 'airborne';
+    dragon.groundPhaseTime = 0;
+    dragon.groundTimer = 28;
+    dragon.groundFromX = 0;
+    dragon.groundFromY = 7.5;
+    dragon.groundFromZ = 0;
+    dragon.groundTargetX = 0;
+    dragon.groundTargetZ = 0;
+    dragon.groundTakeoffX = 0;
+    dragon.groundTakeoffZ = 0;
     dragonSlamEffects.length = 0;
     dragonFireballs.length = 0;
     dragonFireImpacts.length = 0;
@@ -925,12 +945,22 @@
     refreshDragonHud();
   }
 
+
   function refreshDragonHud() {
-    dragonHealthLabel.textContent = !bossChallengeAccepted
-      ? '대기 중'
-      : (dragon.active
-        ? `${Math.ceil(dragon.health)} / ${dragon.maxHealth}`
-        : '격파 완료');
+    if (!bossChallengeAccepted) {
+      dragonHealthLabel.textContent = '대기 중';
+      return;
+    }
+    if (!dragon.active) {
+      dragonHealthLabel.textContent = '격파 완료';
+      return;
+    }
+
+    const phaseLabel = dragon.groundPhase === 'landing' ? '착지 중'
+      : (dragon.groundPhase === 'rest' ? '지상 휴식 중'
+        : (dragon.groundPhase === 'takeoff' ? '이륙 중' : '비행 중'));
+    dragonHealthLabel.textContent =
+      `${Math.ceil(dragon.health)} / ${dragon.maxHealth} · ${phaseLabel}`;
   }
 
   function damageDragon(amount) {
@@ -1106,10 +1136,105 @@
     }
   }
 
+
+  function beginDragonLanding() {
+    dragon.groundPhase = 'landing';
+    dragon.groundPhaseTime = 0;
+    dragon.groundFromX = dragon.x;
+    dragon.groundFromY = dragon.y;
+    dragon.groundFromZ = dragon.z;
+
+    // 착지 지점은 시작 순간에 고정해 지상으로 내려오는 동안 플레이어를 추적하지 않습니다.
+    const awayX = dragon.x - player.x;
+    const awayZ = dragon.z - player.z;
+    const awayLength = Math.hypot(awayX, awayZ) || 1;
+    dragon.groundTargetX = player.x + awayX / awayLength * 10;
+    dragon.groundTargetZ = player.z + awayZ / awayLength * 10;
+    dragon.fireTimer = Math.max(dragon.fireTimer, 1.5);
+    refreshDragonHud();
+  }
+
+  function updateDragonGroundPhase(dt) {
+    dragon.groundPhaseTime += dt;
+
+    if (dragon.groundPhase === 'landing') {
+      const t = Math.min(1, dragon.groundPhaseTime / 1.65);
+      const eased = t * t * (3 - 2 * t);
+      dragon.x = dragon.groundFromX + (dragon.groundTargetX - dragon.groundFromX) * eased;
+      dragon.z = dragon.groundFromZ + (dragon.groundTargetZ - dragon.groundFromZ) * eased;
+      dragon.y = dragon.groundFromY + (2.15 - dragon.groundFromY) * eased;
+      dragon.roll = Math.sin(t * Math.PI) * 0.07;
+      dragon.pitch = -0.08 * (1 - eased);
+      updateDragonFacing();
+
+      if (t >= 1) {
+        dragon.groundPhase = 'rest';
+        dragon.groundPhaseTime = 0;
+        dragon.x = dragon.groundTargetX;
+        dragon.y = 2.15;
+        dragon.z = dragon.groundTargetZ;
+        dragon.roll = 0;
+        dragon.pitch = 0;
+        refreshDragonHud();
+      }
+      return;
+    }
+
+    if (dragon.groundPhase === 'rest') {
+      // 12초 동안 위치와 자세를 유지하고 모든 비행·공격 타이머를 멈춥니다.
+      dragon.x = dragon.groundTargetX;
+      dragon.y = 2.15;
+      dragon.z = dragon.groundTargetZ;
+      dragon.roll = 0;
+      dragon.pitch = 0;
+
+      if (dragon.groundPhaseTime >= 12) {
+        dragon.groundPhase = 'takeoff';
+        dragon.groundPhaseTime = 0;
+        dragon.groundFromX = dragon.x;
+        dragon.groundFromY = dragon.y;
+        dragon.groundFromZ = dragon.z;
+        dragon.groundTakeoffX = player.x + Math.cos(dragon.orbit) * 17;
+        dragon.groundTakeoffZ = player.z + Math.sin(dragon.orbit) * 17;
+        updateDragonFacing();
+        refreshDragonHud();
+      }
+      return;
+    }
+
+    if (dragon.groundPhase === 'takeoff') {
+      const t = Math.min(1, dragon.groundPhaseTime / 1.75);
+      const eased = t * t * (3 - 2 * t);
+      dragon.x = dragon.groundFromX + (dragon.groundTakeoffX - dragon.groundFromX) * eased;
+      dragon.z = dragon.groundFromZ + (dragon.groundTakeoffZ - dragon.groundFromZ) * eased;
+      dragon.y = dragon.groundFromY + (7.4 - dragon.groundFromY) * eased;
+      dragon.roll = 0.06 * (1 - eased);
+      dragon.pitch = -0.08 * (1 - eased);
+      updateDragonFacing();
+
+      if (t >= 1) {
+        dragon.groundPhase = 'airborne';
+        dragon.groundPhaseTime = 0;
+        dragon.groundTimer = 30;
+        dragon.slamTimer = 6.5;
+        dragon.fireTimer = 2.2;
+        dragon.roll = 0;
+        dragon.pitch = 0;
+        refreshDragonHud();
+      }
+    }
+  }
+
+
   function updateDragon(dt) {
     if (!bossChallengeAccepted || !dragon.active) return;
     dragon.time += dt;
     dragon.flash = Math.max(0, dragon.flash - dt);
+
+    if (dragon.groundPhase !== 'airborne') {
+      updateDragonGroundPhase(dt);
+      return;
+    }
 
     if (dragon.slamPhase !== 'idle') {
       updateDragonSlam(dt);
@@ -1123,6 +1248,12 @@
     dragon.roll = 0;
     dragon.pitch = 0;
     updateDragonFacing();
+
+    dragon.groundTimer -= dt;
+    if (dragon.groundTimer <= 0) {
+      beginDragonLanding();
+      return;
+    }
 
     dragon.fireTimer -= dt;
     if (dragon.fireTimer <= 0) {
@@ -2032,8 +2163,20 @@
     const attackWingPose = dragon.slamPhase === 'climb' ? 0.9
       : (dragon.slamPhase === 'spin' ? 1.45
         : (dragon.slamPhase === 'dive' ? 2.0 : 0));
-    const wingLift = flap * 1.7 + attackWingPose;
-    const tailSway = Math.sin(dragon.time * 1.8) * 0.55;
+    let wingLift = flap * 1.7 + attackWingPose;
+    if (dragon.groundPhase === 'landing') {
+      const fold = Math.min(1, dragon.groundPhaseTime / 1.65);
+      const easedFold = fold * fold * (3 - 2 * fold);
+      wingLift = (flap * 1.7 + 0.45) * (1 - easedFold) - 0.78 * easedFold;
+    } else if (dragon.groundPhase === 'rest') {
+      wingLift = -0.78;
+    } else if (dragon.groundPhase === 'takeoff') {
+      const unfold = Math.min(1, dragon.groundPhaseTime / 1.75);
+      const easedUnfold = unfold * unfold * (3 - 2 * unfold);
+      wingLift = -0.78 * (1 - easedUnfold) + (flap * 1.7 + 0.45) * easedUnfold;
+    }
+    const tailSway = Math.sin(dragon.time * (dragon.groundPhase === 'rest' ? 0.55 : 1.8)) *
+      (dragon.groundPhase === 'rest' ? 0.09 : 0.55);
     const emberPulse = 0.5 + (Math.sin(dragon.time * 7.5) + 1) * 0.25;
     const armorDark = dragon.flash > 0 ? '#fff1e6' : '#350912';
     const armorRed = dragon.flash > 0 ? '#fff7ed' : '#721323';
