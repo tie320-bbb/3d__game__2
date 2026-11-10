@@ -234,7 +234,7 @@
     <div>일시정지: ESC · 재개: P</div>
     <div>레벨: <span id="game-level">1</span></div>
     <div>전장: <span id="game-arena-status">초원</span></div>
-    <div id="game-boss-entry-hint" hidden>보스 도전 가능 · O 키</div>
+    <div id="game-boss-entry-hint">보스방 즉시 입장 · O 키</div>
     <div id="game-xp-row">경험치: <span id="game-xp-text">0 / 100</span></div>
     <div id="game-xp-track"><div id="game-xp-fill"></div></div>
     <div>적 명중: <span id="game-hits">0</span> · 처치: <span id="game-kills">0</span></div>
@@ -248,7 +248,7 @@
     <div id="game-position">위치: 0.0, 0.0</div>
   </div>
 
-  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · 레벨 10부터 O 키로 보스 입장</div>
+  <div id="game-help">WASD 이동 · 방향키 시점 조정 · SPACE 점프 · ENTER 발사/충전 · F 참격 연계 · Ctrl 대시 참격 · O 키로 언제든 보스방 즉시 입장</div>
 
   <div id="game-overlay" role="dialog" aria-modal="true" aria-labelledby="game-overlay-title">
     <div id="game-overlay-panel">
@@ -651,10 +651,14 @@
   }
 
   function enterBossArena() {
-    if (level < 10 || bossChallengeAccepted ||
-        (gameState !== 'playing' && gameState !== 'paused')) return;
+    if (bossChallengeAccepted) return;
 
     clearKeys();
+    crossSlashPending = false;
+    crossSlashTimer = 0;
+    waveSlashPending = false;
+    waveSlashTimer = 0;
+    currentSkillOffers = [];
     bossChallengeAccepted = true;
     arenaTheme = 'lava';
     arenaStatusLabel.textContent = '용암 전장 · 드래곤 보스';
@@ -682,11 +686,9 @@
     levelLabel.textContent = String(level);
     xpText.textContent = `${experience} / ${experienceNeeded}`;
     xpFill.style.width = `${Math.max(0, Math.min(100, experience / experienceNeeded * 100))}%`;
-    bossEntryHint.hidden = level < 10 || bossChallengeAccepted;
-    if (!bossChallengeAccepted && level >= 10) {
-      arenaStatusLabel.textContent = '보스 도전 가능 · O';
-    } else if (!bossChallengeAccepted) {
-      arenaStatusLabel.textContent = '초원';
+    bossEntryHint.hidden = bossChallengeAccepted;
+    if (!bossChallengeAccepted) {
+      arenaStatusLabel.textContent = '초원 · O로 보스방 입장';
     }
   }
 
@@ -1170,6 +1172,12 @@
     if (skills.dashSlashLevel <= 0 || dashCooldown > 0 || dashState ||
         gameState !== 'playing') return;
 
+    // 대시 시작 시 남아 있던 일반 참격/파동 연계를 취소합니다.
+    crossSlashPending = false;
+    crossSlashTimer = 0;
+    waveSlashPending = false;
+    waveSlashTimer = 0;
+
     const forward = getCameraForward();
     const horizontalLength = Math.hypot(forward.x, forward.z) || 1;
     const dirX = forward.x / horizontalLength;
@@ -1222,7 +1230,7 @@
   }
 
   function performSlash() {
-    if (skills.slashLevel <= 0 || slashCooldown > 0) return;
+    if (skills.slashLevel <= 0 || slashCooldown > 0 || dashState) return;
     slashCooldown = Math.max(0.32, 0.72 - (skills.slashLevel - 1) * 0.06);
     slashEffect = 0.10;
     slashEffectType = 'main';
@@ -1271,6 +1279,11 @@
       return;
     }
 
+    if (event.code === 'KeyO') {
+      if (!event.repeat) enterBossArena();
+      return;
+    }
+
     if (gameState === 'levelup') {
       if (!event.repeat && ['Digit1','Digit2','Digit3','Numpad1','Numpad2','Numpad3'].includes(event.code)) {
         const choice = event.code.endsWith('1') ? '1' : event.code.endsWith('2') ? '2' : '3';
@@ -1279,12 +1292,6 @@
                  (event.code === 'Enter' || event.code === 'KeyP')) {
         startGame();
       }
-      return;
-    }
-
-    if ((gameState === 'playing' || gameState === 'paused') &&
-        event.code === 'KeyO') {
-      if (!event.repeat) enterBossArena();
       return;
     }
 
@@ -1687,6 +1694,65 @@
     ctx.restore();
   }
 
+  function drawDragonTorsoHull() {
+    // 뒤쪽으로 길게 빠지고 어깨에서 넓어지는 각진 몸통 단면들
+    const profiles = [
+      { z: -2.85, width: 0.62, top: 0.48, bottom: -0.42 },
+      { z: -2.05, width: 1.22, top: 0.88, bottom: -0.82 },
+      { z: -0.82, width: 1.72, top: 1.18, bottom: -1.08 },
+      { z: 0.42, width: 1.78, top: 1.14, bottom: -1.04 },
+      { z: 1.42, width: 1.28, top: 0.88, bottom: -0.78 }
+    ];
+    const makeRing = (p) => [
+      [0, p.top, p.z],
+      [p.width * 0.72, p.top * 0.68, p.z],
+      [p.width, (p.top + p.bottom) * 0.12, p.z],
+      [p.width * 0.72, p.bottom * 0.68, p.z],
+      [0, p.bottom, p.z],
+      [-p.width * 0.72, p.bottom * 0.68, p.z],
+      [-p.width, (p.top + p.bottom) * 0.12, p.z],
+      [-p.width * 0.72, p.top * 0.68, p.z]
+    ];
+    const rings = profiles.map(makeRing);
+    const shellColors = [
+      armorBright, armorRed, armorDark, '#4a0c19',
+      '#3b0914', '#641323', armorRed, armorBright
+    ];
+
+    // 각 단면 사이를 평면 갑주로 연결해 둥근 타원 대신 면이 살아 있는 몸통을 만듭니다.
+    for (let section = 0; section < rings.length - 1; section++) {
+      const rear = rings[section];
+      const front = rings[section + 1];
+      for (let side = 0; side < 8; side++) {
+        const next = (side + 1) % 8;
+        drawDragonPolygon(
+          [rear[side], rear[next], front[next], front[side]],
+          shellColors[side],
+          'rgba(28,4,12,0.92)',
+          1.5
+        );
+      }
+    }
+
+    // 플레이어 쪽으로 향하는 흉부 면도 둥근 캡이 아닌 다각형으로 마감합니다.
+    drawDragonPolygon([
+      [-0.82, 0.76, 1.49], [-1.32, 0.48, 1.49],
+      [-1.58, 0.02, 1.49], [-1.28, -0.62, 1.49],
+      [-0.68, -1.02, 1.49], [0, -1.16, 1.49],
+      [0.68, -1.02, 1.49], [1.28, -0.62, 1.49],
+      [1.58, 0.02, 1.49], [1.32, 0.48, 1.49],
+      [0.82, 0.76, 1.49], [0, 1.02, 1.49]
+    ], armorRed, '#2b0610', 2.2);
+
+    // 등 중앙의 길쭉한 능선과 좌우 흉곽의 분리선을 강조합니다.
+    drawDragonBone([0, 0.98, 1.38], [0, 1.12, 0.25], gold, 2.4);
+    drawDragonBone([0, 1.12, 0.25], [0, 0.78, -1.15], bronze, 2.1);
+    for (const sign of [-1, 1]) {
+      drawDragonBone([sign * 1.34, 0.5, 1.16], [sign * 1.65, 0.18, -0.52], bronze, 2.2);
+      drawDragonBone([sign * 1.65, 0.18, -0.52], [sign * 1.12, -0.72, -1.82], armorDark, 2.0);
+    }
+  }
+
   function drawDragon() {
     if (!bossChallengeAccepted || !dragon.active) return;
 
@@ -1799,10 +1865,10 @@
       }
     }
 
+    // 둥근 구체를 제거하고 길고 각진 다면체 몸통을 사용합니다.
+    drawDragonTorsoHull();
+
     // 몸통의 어깨 갑주와 흉갑, 불빛이 새어 나오는 배 비늘
-    drawDragonBall(0, 0.02, -0.15, 1.9, 1.28, 2.75, '#4b0b1a');
-    drawDragonBall(0, -0.62, 0.15, 1.42, 0.86, 2.15, '#b13a2c');
-    drawDragonBall(0, 0.56, -0.8, 1.48, 0.82, 1.65, '#6f1023');
     drawDragonPolygon([
       [-1.05, 0.55, 1.1], [-0.55, 1.03, 1.62], [0, 0.9, 2.02],
       [0.55, 1.03, 1.62], [1.05, 0.55, 1.1], [0.78, -0.22, 0.8],
