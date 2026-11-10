@@ -2270,6 +2270,119 @@
     }
   }
 
+
+  function dragonCross3(a, b) {
+    return [
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0]
+    ];
+  }
+
+  function dragonNormalize3(v) {
+    const length = Math.hypot(v[0], v[1], v[2]) || 1;
+    return [v[0] / length, v[1] / length, v[2] / length];
+  }
+
+  function dragonAddScaled3(origin, a, scaleA, b, scaleB) {
+    return [
+      origin[0] + a[0] * scaleA + b[0] * scaleB,
+      origin[1] + a[1] * scaleA + b[1] * scaleB,
+      origin[2] + a[2] * scaleA + b[2] * scaleB
+    ];
+  }
+
+  function drawDragonTubeSegment(start, end, radiusStart, radiusEnd, color, sideCount = 8) {
+    const axis = dragonNormalize3([
+      end[0] - start[0],
+      end[1] - start[1],
+      end[2] - start[2]
+    ]);
+    const reference = Math.abs(axis[1]) < 0.88 ? [0, 1, 0] : [1, 0, 0];
+    const u = dragonNormalize3(dragonCross3(axis, reference));
+    const v = dragonNormalize3(dragonCross3(axis, u));
+
+    const startRing = [];
+    const endRing = [];
+    for (let i = 0; i < sideCount; i++) {
+      const angle = (i / sideCount) * Math.PI * 2;
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      startRing.push(dragonAddScaled3(start, u, c * radiusStart, v, s * radiusStart * 0.82));
+      endRing.push(dragonAddScaled3(end, u, c * radiusEnd, v, s * radiusEnd * 0.82));
+    }
+
+    for (let i = 0; i < sideCount; i++) {
+      const next = (i + 1) % sideCount;
+      const face = [startRing[i], startRing[next], endRing[next], endRing[i]];
+      const highlight = 0.82 + Math.max(0, Math.cos(((i + 0.5) / sideCount) * Math.PI * 2 - 0.65)) * 0.28;
+      drawDragonPolygon(
+        face,
+        shadeDragonColor(color, highlight),
+        'rgba(28,4,12,0.54)',
+        0.85
+      );
+    }
+  }
+
+  function drawDragonSpike(base, tip, radiusSide, radiusDepth, color) {
+    const axis = dragonNormalize3([
+      tip[0] - base[0],
+      tip[1] - base[1],
+      tip[2] - base[2]
+    ]);
+    const reference = Math.abs(axis[2]) < 0.88 ? [0, 0, 1] : [0, 1, 0];
+    const u = dragonNormalize3(dragonCross3(axis, reference));
+    const v = dragonNormalize3(dragonCross3(axis, u));
+    const rings = [];
+
+    for (const level of [
+      { t: 0, scale: 1 },
+      { t: 0.42, scale: 0.72 },
+      { t: 0.76, scale: 0.34 }
+    ]) {
+      const center = [
+        base[0] + (tip[0] - base[0]) * level.t,
+        base[1] + (tip[1] - base[1]) * level.t,
+        base[2] + (tip[2] - base[2]) * level.t
+      ];
+      const ring = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        ring.push(dragonAddScaled3(
+          center,
+          u, Math.cos(angle) * radiusSide * level.scale,
+          v, Math.sin(angle) * radiusDepth * level.scale
+        ));
+      }
+      rings.push(ring);
+    }
+
+    for (let band = 0; band < rings.length - 1; band++) {
+      const lower = rings[band];
+      const upper = rings[band + 1];
+      for (let i = 0; i < 6; i++) {
+        const next = (i + 1) % 6;
+        const faceColor = shadeDragonColor(color, 0.76 + Math.max(0, Math.cos((i + 0.5) * Math.PI / 3 - 0.5)) * 0.34);
+        drawDragonPolygon(
+          [lower[i], lower[next], upper[next], upper[i]],
+          faceColor,
+          'rgba(26,3,12,0.72)',
+          0.9
+        );
+      }
+    }
+    drawDragonPolygon(rings[0].slice().reverse(), shadeDragonColor(color, 0.62), 'rgba(26,3,12,0.8)', 1);
+    for (let i = 0; i < 6; i++) {
+      drawDragonPolygon(
+        [rings[rings.length - 1][i], rings[rings.length - 1][(i + 1) % 6], tip],
+        shadeDragonColor(color, 0.92 + (i % 2) * 0.12),
+        'rgba(26,3,12,0.62)',
+        0.75
+      );
+    }
+  }
+
   function drawDragon() {
     if (!bossChallengeAccepted || !dragon.active) return;
     dragonDrawQueue.length = 0;
@@ -2347,35 +2460,58 @@
       }
     }
 
-    // 긴 꼬리: 좌우로 흔들리고 끝에는 불꽃 모양의 칼날이 달립니다.
-    const tailA = [0, -0.35, -1.75];
-    const tailB = [tailSway * 0.35, -0.55, -3.45];
-    const tailC = [tailSway * 0.8, -0.82, -5.05];
-    const tailD = [tailSway * 1.4, -0.92, -6.55];
-    const tailTip = [tailSway * 1.8, -0.75, -7.75];
-    drawDragonBone(tailA, tailB, '#4c0b1c', 15);
-    drawDragonBone(tailB, tailC, '#741326', 10);
-    drawDragonBone(tailC, tailD, '#a51d2e', 6.5);
-    drawDragonBone(tailD, tailTip, '#e05b26', 3.5);
-    for (let i = 0; i < 7; i++) {
-      if (fastMotion && i % 2 === 1) continue;
-      const t = i / 7;
-      const forward = -2.25 - t * 4.9;
-      const sway = tailSway * (0.25 + t);
-      const base = [sway, -0.15 - t * 0.48, forward];
-      const tip = [sway + 0.12, 0.48 - t * 0.36, forward - 0.34];
-      drawDragonPolygon([
-        base, [sway - 0.3, -0.05 - t * 0.48, forward - 0.08], tip
-      ], '#f59e0b', '#4c0519', 1.2);
+    // 꼬리 전체를 단면 링이 이어지는 다면체 튜브로 구성합니다.
+    const tailPoints = [
+      [0, -0.28, -1.55],
+      [tailSway * 0.18, -0.38, -2.65],
+      [tailSway * 0.42, -0.56, -3.82],
+      [tailSway * 0.72, -0.76, -4.98],
+      [tailSway * 1.02, -0.91, -6.12],
+      [tailSway * 1.36, -0.91, -7.18],
+      [tailSway * 1.68, -0.74, -8.12]
+    ];
+    const tailRadii = [0.72, 0.63, 0.51, 0.39, 0.28, 0.17, 0.045];
+    const tailColors = ['#4c0b1c', '#5b0d21', '#721326', '#8d192b', '#a51d2e', '#c13b2c'];
+    for (let i = 0; i < tailPoints.length - 1; i++) {
+      drawDragonTubeSegment(
+        tailPoints[i],
+        tailPoints[i + 1],
+        tailRadii[i],
+        tailRadii[i + 1],
+        tailColors[i],
+        fastMotion ? 6 : 8
+      );
     }
-    drawDragonPolygon([
-      tailTip,
-      [tailSway * 1.8 - 0.62, -0.46, -7.25],
-      [tailSway * 1.8 - 0.24, 0.12, -7.0],
-      [tailSway * 1.8 + 0.18, 0.52, -7.4],
-      [tailSway * 1.8 + 0.28, -0.05, -7.1],
-      [tailSway * 1.8 + 0.72, -0.38, -7.25]
-    ], '#b91c1c', '#fbbf24', 2.0);
+
+    // 꼬리 끝의 세 갈래 칼날도 각각 두께를 가진 입체 가시로 만듭니다.
+    const tailTip = tailPoints[tailPoints.length - 1];
+    drawDragonSpike(
+      [tailTip[0], tailTip[1], tailTip[2] + 0.12],
+      [tailTip[0], tailTip[1] + 0.16, tailTip[2] - 0.92],
+      0.34, 0.25, '#b91c1c'
+    );
+    drawDragonSpike(
+      [tailTip[0] - 0.08, tailTip[1] - 0.02, tailTip[2] + 0.02],
+      [tailTip[0] - 0.62, tailTip[1] - 0.1, tailTip[2] - 0.48],
+      0.19, 0.14, '#8f1b2b'
+    );
+    drawDragonSpike(
+      [tailTip[0] + 0.08, tailTip[1] - 0.02, tailTip[2] + 0.02],
+      [tailTip[0] + 0.62, tailTip[1] - 0.1, tailTip[2] - 0.48],
+      0.19, 0.14, '#8f1b2b'
+    );
+
+    // 꼬리 윗면의 작은 돌기도 몸통과 같은 3D 가시 메시로 통일합니다.
+    for (let i = 1; i < tailPoints.length - 1; i++) {
+      if (fastMotion && i % 2 === 0) continue;
+      const point = tailPoints[i];
+      const scale = 0.28 - i * 0.027;
+      drawDragonSpike(
+        [point[0], point[1] + tailRadii[i] * 0.72, point[2]],
+        [point[0] + tailSway * 0.025, point[1] + tailRadii[i] + scale, point[2] - 0.2],
+        scale * 0.52, scale * 0.42, '#d97732'
+      );
+    }
 
     // 뒷다리와 앞다리: 관절을 분리해 몸통 아래로 자연스럽게 늘어뜨립니다.
     for (const sign of [-1, 1]) {
@@ -2437,19 +2573,26 @@
                      [0.5 * widthScale, y - 0.1, forward - 0.02], '#f8b75a', 1.1);
     }
 
-    // 등과 목에 솟은 검붉은 칼날형 가시
+    // 등과 목의 가시는 밑면·측면·끝면을 가진 3D 육각뿔 메시입니다.
     for (let i = 0; i < 10; i++) {
       if (fastMotion && i % 2 === 1) continue;
       const forward = 1.1 - i * 0.66;
       const height = 0.92 + Math.sin((i / 9) * Math.PI) * 0.42;
       const baseY = 0.92 + Math.sin((i / 9) * Math.PI) * 0.08;
-      drawDragonPolygon([
-        [-0.38, baseY, forward + 0.26],
-        [0, baseY + height, forward - 0.12],
-        [0.38, baseY, forward + 0.26],
-        [0, baseY - 0.04, forward + 0.05]
-      ], i % 2 === 0 ? '#f59e0b' : '#9f1830', '#3b0715', 1.5);
-      drawDragonBone([0, baseY + 0.15, forward], [0, baseY + height * 0.78, forward - 0.08], '#ffbd59', 1.2);
+      const lean = Math.sin(i * 0.42) * 0.16;
+      drawDragonSpike(
+        [0, baseY, forward + 0.12],
+        [lean, baseY + height, forward - 0.2],
+        0.3 + Math.sin((i / 9) * Math.PI) * 0.035,
+        0.23,
+        i % 2 === 0 ? '#a51d2e' : '#641323'
+      );
+      drawDragonBone(
+        [lean * 0.2, baseY + 0.2, forward + 0.03],
+        [lean * 0.88, baseY + height * 0.78, forward - 0.16],
+        '#fbbf24',
+        1.15
+      );
     }
 
     // 목은 세 겹의 갑주 고리로 길게 뻗고 머리를 받칩니다.
